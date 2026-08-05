@@ -6,16 +6,20 @@ Cross-Platform Media Engine, Inspired by BeOS.
 > Windows (D3D11 Video Decode), and macOS (VideoToolbox). No MP4
 > demuxing, audio, rendering, or playback UI yet.
 >
-> **Verification status differs sharply by platform.** Linux is built,
-> run, and tested in CI and in local development on real hardware paths
-> down to the graceful-failure case. Windows and macOS are implemented
-> against each platform's real, documented decode API (D3D11 Video
-> Decode's DXVA structures; VideoToolbox/CoreMedia/CoreVideo) and
-> compile-checked by [`.github/workflows/build.yml`](.github/workflows/build.yml)
-> on `windows-latest`/`macos-latest` runners — but neither has been
-> exercised against a real decoded H.264 stream on real hardware by a
-> human yet. Treat them as "should work, unverified end-to-end" rather
-> than "proven."
+> **CI status:** [`.github/workflows/build.yml`](.github/workflows/build.yml)
+> builds and runs the full CTest suite on all three platforms
+> (`ubuntu-latest`/`macos-latest`/`windows-latest`) on every push — all
+> green as of the latest commit. None of the CI runners have a GPU
+> attached, though, so what's actually exercised there is: the portable
+> H.264 parser, DPB/POC logic, CLI plumbing, and each platform's real
+> decode API calls up through the point where they need actual hardware
+> — at which point they fail cleanly (a graceful device error, not a
+> crash) rather than decode a real frame. Linux has additionally been
+> run against real VA-API/DRM code paths during development. Windows
+> (D3D11 Video Decode) and macOS (VideoToolbox) compile and link
+> correctly against each platform's real SDK and pass CI, but neither
+> has decoded a real frame on real hardware yet — treat them as "builds
+> clean, unverified end-to-end" rather than "proven."
 
 ## What this is
 
