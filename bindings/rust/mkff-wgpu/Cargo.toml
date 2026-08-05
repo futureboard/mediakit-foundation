@@ -3,7 +3,7 @@ name = "mkff-wgpu"
 version = "0.1.0-dev"
 edition = "2021"
 license = "MIT"
-description = "WGPU / egui demos: display MKFF software-decoded HEVC frames"
+description = "WGPU / egui demos: display MKFF-decoded frames (Annex-B or progressive MP4)"
 publish = false
 
 [[example]]

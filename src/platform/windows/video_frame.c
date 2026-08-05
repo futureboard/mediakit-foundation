@@ -167,6 +167,9 @@ MKFF_Result windows_video_frame_map_cpu_planes(const MKFF_VideoFrame *handle, MK
                                               (ID3D11Resource *)shared->texture_array,
                                               src_subresource,
                                               NULL);
+    /* Ensure the copy is submitted before Map; Map still synchronizes, but
+     * Flush avoids stale/empty readback on some driver paths. */
+    ID3D11DeviceContext_Flush(shared->device_context);
 
     D3D11_MAPPED_SUBRESOURCE mapped;
     memset(&mapped, 0, sizeof(mapped));
@@ -176,9 +179,21 @@ MKFF_Result windows_video_frame_map_cpu_planes(const MKFF_VideoFrame *handle, MK
                                  D3D11_MAP_READ,
                                  0,
                                  &mapped);
-    if (FAILED(hr) || !mapped.pData) {
+    if (FAILED(hr) || !mapped.pData || mapped.RowPitch == 0) {
         IUnknown_Release((IUnknown *)staging);
         decoder_shared_set_error(shared, "ID3D11DeviceContext::Map failed on CPU readback staging");
+        return MKFF_RESULT_ERROR_DEVICE;
+    }
+
+    /* NV12/P010: one resource, Y then UV. UV starts at row `tex_h` with the
+     * same RowPitch as Y (DepthPitch is typically the full Y+UV size — do
+     * not use it as the UV base). */
+    const uint32_t bytes_per_sample = (dxgi_format == DXGI_FORMAT_P010) ? 2u : 1u;
+    const uint32_t min_row_bytes = frame->info.width * bytes_per_sample;
+    if (mapped.RowPitch < min_row_bytes) {
+        ID3D11DeviceContext_Unmap(shared->device_context, (ID3D11Resource *)staging, 0);
+        IUnknown_Release((IUnknown *)staging);
+        decoder_shared_set_error(shared, "D3D11 staging RowPitch smaller than display width");
         return MKFF_RESULT_ERROR_DEVICE;
     }
 
@@ -194,7 +209,6 @@ MKFF_Result windows_video_frame_map_cpu_planes(const MKFF_VideoFrame *handle, MK
     out_planes->height = frame->info.height;
     out_planes->plane_count = 2;
     out_planes->data[0] = (const uint8_t *)mapped.pData;
-    /* NV12/P010: UV plane begins at a 2D offset of (0, texture Height). */
     out_planes->data[1] = (const uint8_t *)mapped.pData + (size_t)mapped.RowPitch * (size_t)tex_h;
     out_planes->stride[0] = (uint32_t)mapped.RowPitch;
     out_planes->stride[1] = (uint32_t)mapped.RowPitch;

@@ -1,28 +1,32 @@
-//! Simple HEVC Annex-B player: MKFF software decode → NV12 → RGBA → egui on wgpu.
+//! Simple video player: MKFF decode → `map_cpu_planes` (NV12) → RGBA → egui on wgpu.
+//!
+//! Accepts progressive MP4/MOV (`.mp4` / `.mov`) or raw Annex-B (`.hevc` / `.h264`).
+//! Large files demux/index quickly and decode on demand (small frame cache).
 //!
 //! ```sh
 //! cargo run -p mkff-wgpu --example player
+//! cargo run -p mkff-wgpu --example player -- path/to/clip.mp4
 //! cargo run -p mkff-wgpu --example player -- path/to/clip.hevc
 //! ```
 //!
 //! Space = play/pause · Left/Right = step · Esc = quit.
-//! No containers, audio, or bitstream seeking — frames are decoded up front.
+//! No audio — scrub via sample-index slider (seek + decode from prior sync).
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Color32, ColorImage, RichText, TextureHandle, TextureOptions, Vec2};
-use mkff_wgpu::{decode_hevc_software_file, Nv12Host};
+use mkff_wgpu::VideoSource;
 
 fn main() -> eframe::Result<()> {
     let path = std::env::args()
         .nth(1)
         .map(PathBuf::from)
-        .unwrap_or_else(default_hevc_path);
+        .unwrap_or_else(default_media_path);
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title("MKFF × egui — HEVC player")
+            .with_title("MKFF × egui — video player")
             .with_inner_size([960.0, 640.0])
             .with_min_inner_size([480.0, 320.0]),
         ..Default::default()
@@ -35,16 +39,16 @@ fn main() -> eframe::Result<()> {
     )
 }
 
-fn default_hevc_path() -> PathBuf {
+fn default_media_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../..")
-        .join("testdata/tiny_main_p_256x144.hevc")
+        .join("testdata/tiny_main_256x144.mp4")
 }
 
 struct PlayerApp {
     path_edit: String,
     status: String,
-    frames: Vec<Nv12Host>,
+    source: Option<VideoSource>,
     texture: Option<TextureHandle>,
     index: usize,
     dirty: bool,
@@ -61,7 +65,7 @@ impl PlayerApp {
         let mut app = Self {
             path_edit,
             status: String::new(),
-            frames: Vec::new(),
+            source: None,
             texture: None,
             index: 0,
             dirty: true,
@@ -76,25 +80,52 @@ impl PlayerApp {
 
     fn load_path(&mut self, path: &Path) {
         self.playing = false;
-        self.frames.clear();
+        self.source = None;
         self.texture = None;
         self.index = 0;
         self.dirty = true;
-        match decode_hevc_software_file(path) {
-            Ok(frames) => {
-                let w = frames[0].width;
-                let h = frames[0].height;
+        self.status = format!("Opening {}…", path.display());
+
+        let t0 = Instant::now();
+        match VideoSource::open(path) {
+            Ok(mut source) => {
+                let n = source.frame_count();
+                let w = source.width();
+                let h = source.height();
                 self.status = format!(
-                    "{} · {}×{} · {} frame{}",
+                    "Indexed {} · {}×{} · {} frame{} ({:.0} ms) — decoding frame 0…",
                     path.display(),
                     w,
                     h,
-                    frames.len(),
-                    if frames.len() == 1 { "" } else { "s" }
+                    n,
+                    if n == 1 { "" } else { "s" },
+                    t0.elapsed().as_secs_f64() * 1000.0
                 );
-                self.frames = frames;
-                self.playing = self.frames.len() > 1;
-                self.last_advance = Instant::now();
+
+                let t1 = Instant::now();
+                match source.frame(0) {
+                    Ok(frame) => {
+                        let fw = frame.width;
+                        let fh = frame.height;
+                        self.status = format!(
+                            "{} · {}×{} · {} frame{} · on-demand (open {:.0} ms, frame0 {:.0} ms)",
+                            path.display(),
+                            fw,
+                            fh,
+                            n,
+                            if n == 1 { "" } else { "s" },
+                            t0.elapsed().as_secs_f64() * 1000.0,
+                            t1.elapsed().as_secs_f64() * 1000.0
+                        );
+                        self.source = Some(source);
+                        self.playing = n > 1;
+                        self.last_advance = Instant::now();
+                        self.dirty = true;
+                    }
+                    Err(e) => {
+                        self.status = format!("decode frame 0 failed: {e}");
+                    }
+                }
             }
             Err(e) => {
                 self.status = format!("load failed: {e}");
@@ -102,56 +133,80 @@ impl PlayerApp {
         }
     }
 
+    fn frame_count(&self) -> usize {
+        self.source.as_ref().map(|s| s.frame_count()).unwrap_or(0)
+    }
+
     fn sync_texture(&mut self, ctx: &egui::Context) {
         if !self.dirty {
             return;
         }
-        let Some(frame) = self.frames.get(self.index) else {
+        let Some(source) = self.source.as_mut() else {
             self.texture = None;
             self.dirty = false;
             return;
         };
-        let image = ColorImage::from_rgba_unmultiplied(
-            [frame.width as usize, frame.height as usize],
-            &frame.to_rgba8(),
-        );
-        match &mut self.texture {
-            Some(tex) => tex.set(image, TextureOptions::LINEAR),
-            None => {
-                self.texture = Some(ctx.load_texture("mkff-frame", image, TextureOptions::LINEAR));
+        let index = self.index;
+        match source.frame(index) {
+            Ok(frame) => {
+                let image = ColorImage::from_rgba_unmultiplied(
+                    [frame.width as usize, frame.height as usize],
+                    &frame.to_rgba8(),
+                );
+                match &mut self.texture {
+                    Some(tex) => tex.set(image, TextureOptions::LINEAR),
+                    None => {
+                        self.texture =
+                            Some(ctx.load_texture("mkff-frame", image, TextureOptions::LINEAR));
+                    }
+                }
+                self.dirty = false;
+            }
+            Err(e) => {
+                self.status = format!("decode frame {index} failed: {e}");
+                self.playing = false;
+                self.dirty = false;
             }
         }
-        self.dirty = false;
     }
 
     fn set_index(&mut self, index: usize) {
-        if self.frames.is_empty() {
+        let n = self.frame_count();
+        if n == 0 {
             return;
         }
-        let next = index.min(self.frames.len() - 1);
+        let next = index.min(n - 1);
         if next != self.index {
             self.index = next;
             self.dirty = true;
+            if let Some(src) = &self.source {
+                self.status = format!(
+                    "frame {}/{} · {}×{} · on-demand",
+                    self.index + 1,
+                    src.frame_count(),
+                    src.width(),
+                    src.height()
+                );
+            }
         }
     }
 
     fn advance(&mut self) {
-        if self.frames.is_empty() {
+        let n = self.frame_count();
+        if n == 0 {
             return;
         }
-        if self.index + 1 < self.frames.len() {
-            self.index += 1;
-            self.dirty = true;
+        if self.index + 1 < n {
+            self.set_index(self.index + 1);
         } else if self.looping {
-            self.index = 0;
-            self.dirty = true;
+            self.set_index(0);
         } else {
             self.playing = false;
         }
     }
 
     fn tick_playback(&mut self, ctx: &egui::Context) {
-        if !self.playing || self.frames.len() <= 1 {
+        if !self.playing || self.frame_count() <= 1 {
             return;
         }
         let period = Duration::from_secs_f32(1.0 / self.fps.max(1.0));
@@ -194,24 +249,16 @@ impl eframe::App for PlayerApp {
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     let play_label = if self.playing { "Pause" } else { "Play" };
-                    if ui
-                        .add_enabled(!self.frames.is_empty(), egui::Button::new(play_label))
-                        .clicked()
-                    {
+                    let has = self.frame_count() > 0;
+                    if ui.add_enabled(has, egui::Button::new(play_label)).clicked() {
                         self.playing = !self.playing;
                         self.last_advance = Instant::now();
                     }
-                    if ui
-                        .add_enabled(!self.frames.is_empty(), egui::Button::new("Prev"))
-                        .clicked()
-                    {
+                    if ui.add_enabled(has, egui::Button::new("Prev")).clicked() {
                         self.playing = false;
                         self.set_index(self.index.saturating_sub(1));
                     }
-                    if ui
-                        .add_enabled(!self.frames.is_empty(), egui::Button::new("Next"))
-                        .clicked()
-                    {
+                    if ui.add_enabled(has, egui::Button::new("Next")).clicked() {
                         self.playing = false;
                         self.set_index(self.index + 1);
                     }
@@ -223,8 +270,8 @@ impl eframe::App for PlayerApp {
                             .speed(0.5),
                     );
 
-                    if !self.frames.is_empty() {
-                        let max = (self.frames.len() - 1) as u32;
+                    if has {
+                        let max = (self.frame_count() - 1) as u32;
                         let mut slider = self.index as u32;
                         ui.style_mut().spacing.slider_width = ui.available_width().max(120.0) - 80.0;
                         if ui
@@ -242,7 +289,7 @@ impl eframe::App for PlayerApp {
                     ui.add(
                         egui::TextEdit::singleline(&mut self.path_edit)
                             .desired_width(ui.available_width() - 72.0)
-                            .hint_text("raw .hevc Annex-B (not .mp4)"),
+                            .hint_text("Annex-B .hevc/.h264 or progressive .mp4/.mov"),
                     );
                     if ui.button("Load").clicked() {
                         let path = PathBuf::from(self.path_edit.trim());

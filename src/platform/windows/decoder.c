@@ -1119,12 +1119,19 @@ static MKFF_Result windows_video_decoder_submit_h264(WindowsVideoDecoder *dec,
         }
 
         if (slice_count < H264_MAX_NAL_UNITS_PER_AU) {
-            uint32_t offset = 0;
-            if (bitstream_acc_append(&bitstream, nal->data, nal->size, &offset)) {
-                slices[slice_count].BSNALunitDataLocation = offset;
-                slices[slice_count].SliceBytesInBuffer = (UINT)nal->size;
-                slices[slice_count].wBadSliceChopping = 0;
-                slice_count++;
+            /* ConfigBitstreamRaw == 2 expects Annex-B start codes in the
+             * DXVA bitstream buffer (same as the HEVC path below). nal->data
+             * from h264_split_annex_b points past the start code. */
+            static const uint8_t start_code[3] = {0, 0, 1};
+            uint32_t sc_offset = 0;
+            if (bitstream_acc_append(&bitstream, start_code, sizeof(start_code), &sc_offset)) {
+                uint32_t nal_offset = 0;
+                if (bitstream_acc_append(&bitstream, nal->data, nal->size, &nal_offset)) {
+                    slices[slice_count].BSNALunitDataLocation = sc_offset;
+                    slices[slice_count].SliceBytesInBuffer = (UINT)(sizeof(start_code) + nal->size);
+                    slices[slice_count].wBadSliceChopping = 0;
+                    slice_count++;
+                }
             }
         }
     }

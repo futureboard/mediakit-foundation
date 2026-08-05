@@ -16,8 +16,9 @@ Cross-Platform Media Engine, Inspired by BeOS.
 
 > Status: **0.1.0-dev**. H.264 and HEVC (Main / Main10) decode on Linux
 > (VA-API), Windows (D3D11 Video Decode), and macOS (VideoToolbox), plus
-> an optional Apache-2.0 libhevc software fallback for HEVC. No MP4
-> demuxing, audio, rendering, or playback UI yet.
+> an optional Apache-2.0 libhevc software fallback for HEVC. Progressive
+> MP4/MOV demux (`avc1` / `hvc1` / `hev1` → Annex-B). No audio or
+> fragmented MP4 yet.
 >
 > [`.github/workflows/build.yml`](.github/workflows/build.yml) builds and
 > runs the full CTest suite on all three platforms
@@ -31,10 +32,13 @@ Cross-Platform Media Engine, Inspired by BeOS.
 MKFF is a portable media engine core (`libmkff`) with dynamically-loaded
 platform backends (`libmkff_platform_linux` / `_macos` / `_windows`).
 The core is C11, has a stable versioned C ABI, and keeps hardware frames
-GPU-native (zero-copy export). Software-decoded HEVC frames expose CPU
-NV12 / P010 planes via `mkff_video_frame_map_cpu_planes`.
+GPU-native (zero-copy export). CPU NV12 / P010 planes are available via
+`mkff_video_frame_map_cpu_planes` for software frames and for hardware
+frames when the platform implements readback (D3D11 staging / CVPixelBuffer
+lock / VA derive-map).
 
 ```
+MP4:     progressive moov+mdat (avc1 / hvc1 / hev1) -> Annex-B AUs
 Linux:   Annex-B -> parser -> VA-API VLD -> NV12/P010 surface -> DMA-BUF
 Windows: Annex-B -> parser -> D3D11/DXVA VLD -> NV12/P010 texture -> shared handle
 macOS:   Annex-B -> parser -> VideoToolbox -> IOSurface-backed CVPixelBuffer
@@ -59,16 +63,17 @@ src/codecs/h264/         portable H.264 Annex-B/SPS/PPS/slice/POC parser
 src/codecs/hevc/         portable HEVC VPS/SPS/PPS/slice/POC parser
 src/codecs/hevc/software libhevc C wrapper (optional software fallback)
 src/core/                libmkff: context, loader, backend selection, SW glue
+src/demux/mp4/           progressive MP4/MOV demux (avc1 / hvc1 / hev1)
 src/platform/linux/      VA-API, DMA-BUF, H.264 + HEVC DPB
 src/platform/windows/    D3D11/DXVA, shared handles, H.264 + HEVC DPB
 src/platform/macos/      VideoToolbox, IOSurface export
 src/cli/                 mkff CLI
 bindings/rust/mkff-sys   raw FFI
-bindings/rust/mkff       safe RAII wrapper
+bindings/rust/mkff       safe RAII wrapper (incl. Mp4Demux)
 bindings/rust/mkff-vk    dma-buf -> VkImage (Linux)
-bindings/rust/mkff-wgpu  HEVC SW decode → NV12 → wgpu viewer
+bindings/rust/mkff-wgpu  decode → map_cpu_planes → wgpu / egui player
 tests/                   CTest suite
-testdata/                tiny Annex-B H.264 / HEVC fixtures
+testdata/                tiny Annex-B + progressive .mp4 fixtures
 ```
 
 ## Requirements
@@ -109,7 +114,8 @@ mkff = { git = "...", default-features = false, features = ["bundled", "hevc"] }
 ```
 
 Helpers: `Context::video_decoder_hevc()`, `video_decoder_hevc_with_backend()`,
-`VideoBackend`, `PixelFormat::P010`, `VideoFrame::map_cpu_planes()`.
+`Context::video_decoder()`, `Mp4Demux`, `VideoBackend`, `PixelFormat::P010`,
+`VideoFrame::map_cpu_planes()`.
 
 ## Building
 
@@ -172,11 +178,27 @@ Rejected: 4:2:2 / 4:4:4, non-8/10 bit depth, tiles/WPP on HW paths this mileston
 Linux dma-buf → `VkImage` via `VK_EXT_image_drm_format_modifier`. NV12
 today; P010 drm fourcc is exported when Main10 surfaces are available.
 
+## MP4 demux
+
+Progressive (non-fragmented) MP4/MOV with `moov` + `mdat`. First `vide`
+track only; sample entries **`avc1`** (H.264) and **`hvc1`/`hev1`** (HEVC).
+Samples are converted to Annex-B (length-prefixed NALs → start codes;
+`avcC`/`hvcC` parameter sets prepended on the first / sync samples).
+
+C API: `mkff_mp4_demux_open_path` / `open_memory`, `get_video_track`,
+`read_access_unit`, `seek_sample`. Rust: `mkff::Mp4Demux`.
+
+Not supported: audio tracks, fragmented MP4 (`moof`/`mdat` segments),
+encryption (`encv`), edit-list reordering beyond basic `ctts`.
+
+Fixtures: `testdata/tiny_baseline_64x64.mp4` (`avc1`),
+`testdata/tiny_main_256x144.mp4` (`hvc1`).
+
 ## WGPU demos (`mkff-wgpu`)
 
-Portable demos: software-decode HEVC Main → `map_cpu_planes` (NV12).
+Portable demos: decode → `map_cpu_planes` (NV12) → upload / egui.
 
-**Fullscreen WGSL viewer** (R8 + RG8 upload → YUV→RGB):
+**Fullscreen WGSL viewer** (R8 + RG8 upload → YUV→RGB; HEVC Annex-B SW):
 
 ```sh
 cargo run -p mkff-wgpu --example view
@@ -187,19 +209,23 @@ cargo run -p mkff-wgpu --example view -- path/to/clip.hevc
 
 ```sh
 cargo run -p mkff-wgpu --example player
+cargo run -p mkff-wgpu --example player -- testdata/tiny_main_256x144.mp4
+cargo run -p mkff-wgpu --example player -- testdata/tiny_baseline_64x64.mp4
 cargo run -p mkff-wgpu --example player -- path/to/clip.hevc
 ```
 
-Defaults to `testdata/tiny_main_p_256x144.hevc` (I+P). Uses
-`SOFTWARE_ONLY` + libhevc (8-bit Main). Frames are decoded up front; no
-containers, audio, or bitstream seeking. Hardware zero-copy into wgpu is
+Defaults to `testdata/tiny_main_256x144.mp4`. Progressive MP4 uses demux +
+`AUTO` decode (H.264 HW on Windows when available; HEVC may use HW or
+libhevc SW for Main). Annex-B `.hevc` still uses `SOFTWARE_ONLY` + libhevc.
+Frames are decoded up front; no audio. Hardware zero-copy into wgpu is
 not wired yet. Needs a GPU/display; not part of default CI.
 
 ## Non-goals (this milestone)
 
-MP4/container demuxing, audio, bitstream seeking, VP9/AV1, software
-H.264, production GUI, mid-stream resolution change, long-term reference
-picture edge cases beyond the supported Main/Main10 subset.
+Fragmented MP4 / audio demux, bitstream seeking as a product feature,
+VP9/AV1, software H.264, production GUI, mid-stream resolution change,
+long-term reference picture edge cases beyond the supported Main/Main10
+subset.
 
 ## License
 
