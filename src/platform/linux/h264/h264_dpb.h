@@ -4,9 +4,9 @@
 #include <stdint.h>
 #include <va/va.h>
 
-#include "../video_frame.h"
-#include "h264_slice.h"
-#include "h264_sps_pps.h"
+#include "src/codecs/h264/h264_slice.h"
+#include "src/codecs/h264/h264_sps_pps.h"
+#include "src/platform/linux/video_frame.h"
 
 #define H264_DPB_MAX_ENTRIES 16
 #define H264_OUTPUT_QUEUE_MAX 17

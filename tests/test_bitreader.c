@@ -2,7 +2,7 @@
 #include <stdio.h>
 
 #include "h264_bitwriter.h"
-#include "src/platform/linux/h264/h264_bitstream.h"
+#include "src/codecs/h264/h264_bitstream.h"
 
 static void test_ue_known_values(void) {
     /* Table 9-2 examples: codeNum -> bit string. */

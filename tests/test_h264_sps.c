@@ -2,7 +2,7 @@
 #include <stdio.h>
 
 #include "h264_bitwriter.h"
-#include "src/platform/linux/h264/h264_sps_pps.h"
+#include "src/codecs/h264/h264_sps_pps.h"
 
 static size_t build_baseline_sps(uint8_t *out, size_t out_capacity) {
     uint8_t rbsp[64];

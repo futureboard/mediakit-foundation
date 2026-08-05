@@ -1,0 +1,70 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux:
+    name: Linux (Clang)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build clang pkg-config libva-dev libdrm-dev
+
+      - name: Configure
+        run: cmake --preset linux-clang-debug
+
+      - name: Build
+        run: cmake --build --preset linux-clang-debug
+
+      - name: Test
+        run: ctest --preset linux-clang-debug
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo build
+        run: cargo build --manifest-path bindings/rust/Cargo.toml
+
+      - name: Cargo test
+        run: cargo test --manifest-path bindings/rust/Cargo.toml
+
+  macos:
+    name: macOS (Clang / VideoToolbox)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: brew install cmake ninja
+
+      - name: Configure
+        run: cmake --preset macos-clang-debug
+
+      - name: Build
+        run: cmake --build --preset macos-clang-debug
+
+      - name: Test
+        run: ctest --preset macos-clang-debug
+
+  windows:
+    name: Windows (MSVC / D3D11 Video Decode)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake --preset windows-msvc-debug
+
+      - name: Build
+        run: cmake --build --preset windows-msvc-debug
+
+      - name: Test
+        run: ctest --preset windows-msvc-debug

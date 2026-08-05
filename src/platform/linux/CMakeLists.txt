@@ -5,9 +5,6 @@ set(MKFF_PLATFORM_LINUX_SOURCES
     platform_api.c
     va_display.c
     video_frame.c
-    h264/h264_bitstream.c
-    h264/h264_sps_pps.c
-    h264/h264_slice.c
     h264/h264_dpb.c
 )
 
@@ -23,6 +20,7 @@ target_compile_definitions(mkff_platform_linux PRIVATE MKFF_BUILDING_SHARED)
 
 target_link_libraries(mkff_platform_linux
     PRIVATE
+        mkff_codec_h264
         PkgConfig::LIBVA
         PkgConfig::LIBVA_DRM
         PkgConfig::LIBDRM

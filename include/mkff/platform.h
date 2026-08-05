@@ -29,9 +29,11 @@
 #include "mkff/linux/drm.h"
 #include "mkff/linux/va.h"
 #include "mkff/log.h"
+#include "mkff/macos/iosurface.h"
 #include "mkff/types.h"
 #include "mkff/video_decoder.h"
 #include "mkff/video_frame.h"
+#include "mkff/windows/d3d11.h"
 
 MKFF_BEGIN_DECLS
 
@@ -45,6 +47,18 @@ typedef struct MKFF_PlatformAPI {
     void                  (*context_destroy)(MKFF_PlatformContext *pctx);
     const char           *(*context_get_last_error)(MKFF_PlatformContext *pctx);
 
+    /*
+     * Every field below this point is platform-specific and NULLABLE:
+     * a given platform module only populates the handful of slots
+     * matching its own OS, and leaves every other platform's slots as
+     * NULL. That's safe because the *public* wrapper functions that
+     * would call them (mkff_linux_*, mkff_macos_*, mkff_windows_*) are
+     * themselves only compiled into libmkff for the matching
+     * CMAKE_SYSTEM_NAME — an app built for Windows never links a call
+     * path that could reach a NULL video_frame_export_dmabuf, etc.
+     */
+
+    /* --- Linux (VA-API / DRM / dma-buf) --- */
     MKFF_Result (*enumerate_drm_devices)(MKFF_PlatformContext *pctx,
                                           MKFF_DrmDeviceInfo *out_array,
                                           uint32_t array_capacity,
@@ -76,7 +90,13 @@ typedef struct MKFF_PlatformAPI {
     MKFF_VideoFrame *(*video_frame_retain)(MKFF_VideoFrame *frame);
     void             (*video_frame_release)(MKFF_VideoFrame *frame);
     MKFF_Result      (*video_frame_get_info)(const MKFF_VideoFrame *frame, MKFF_VideoFrameInfo *out_info);
-    MKFF_Result      (*video_frame_export_dmabuf)(const MKFF_VideoFrame *frame, MKFF_LinuxDmaBufDesc *out_desc);
+
+    /* --- Linux --- */
+    MKFF_Result (*video_frame_export_dmabuf)(const MKFF_VideoFrame *frame, MKFF_LinuxDmaBufDesc *out_desc);
+    /* --- macOS --- */
+    MKFF_Result (*video_frame_export_iosurface)(const MKFF_VideoFrame *frame, MKFF_MacosIOSurfaceDesc *out_desc);
+    /* --- Windows --- */
+    MKFF_Result (*video_frame_export_d3d11_texture)(const MKFF_VideoFrame *frame, MKFF_WindowsD3D11TextureDesc *out_desc);
 } MKFF_PlatformAPI;
 
 typedef const MKFF_PlatformAPI *(*MKFF_PlatformGetApiFn)(uint32_t requested_abi_version);

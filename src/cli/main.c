@@ -1,10 +1,12 @@
 #include <stdio.h>
 #include <string.h>
 
+#if defined(MKFF_CLI_HAVE_LINUX_COMMANDS)
 int cmd_devices(int argc, char **argv);
 int cmd_va_info(int argc, char **argv);
-int cmd_decode_test(int argc, char **argv);
 int cmd_export_test(int argc, char **argv);
+#endif
+int cmd_decode_test(int argc, char **argv);
 int cmd_benchmark(int argc, char **argv);
 
 static void print_usage(const char *prog) {
@@ -12,10 +14,14 @@ static void print_usage(const char *prog) {
             "usage: %s <command> [args]\n"
             "\n"
             "commands:\n"
+#if defined(MKFF_CLI_HAVE_LINUX_COMMANDS)
             "  devices                          list DRM render nodes\n"
             "  va-info                           report VA-API vendor/driver and supported profiles\n"
-            "  decode-test <input.h264> [--frames N]   decode via VA-API VLD and report stats\n"
+#endif
+            "  decode-test <input.h264> [--frames N]   decode via hardware VLD and report stats\n"
+#if defined(MKFF_CLI_HAVE_LINUX_COMMANDS)
             "  export-test <input.h264> [--frames N]   decode and export decoded surfaces as dma-buf\n"
+#endif
             "  benchmark <input.h264> [--seconds N]    decode in a loop and report FPS\n",
             prog);
 }
@@ -30,14 +36,17 @@ int main(int argc, char **argv) {
     int sub_argc = argc - 1;
     char **sub_argv = argv + 1;
 
+#if defined(MKFF_CLI_HAVE_LINUX_COMMANDS)
     if (strcmp(command, "devices") == 0) {
         return cmd_devices(sub_argc, sub_argv);
     } else if (strcmp(command, "va-info") == 0) {
         return cmd_va_info(sub_argc, sub_argv);
-    } else if (strcmp(command, "decode-test") == 0) {
-        return cmd_decode_test(sub_argc, sub_argv);
     } else if (strcmp(command, "export-test") == 0) {
         return cmd_export_test(sub_argc, sub_argv);
+    }
+#endif
+    if (strcmp(command, "decode-test") == 0) {
+        return cmd_decode_test(sub_argc, sub_argv);
     } else if (strcmp(command, "benchmark") == 0) {
         return cmd_benchmark(sub_argc, sub_argv);
     } else if (strcmp(command, "-h") == 0 || strcmp(command, "--help") == 0) {
