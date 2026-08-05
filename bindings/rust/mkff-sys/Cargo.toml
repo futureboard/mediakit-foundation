@@ -1,0 +1,13 @@
+[package]
+name = "mkff-sys"
+version = "0.1.0-dev"
+edition = "2021"
+license = "MIT"
+description = "Raw FFI declarations for libmkff (MediaKit Foundation Framework)"
+build = "build.rs"
+
+[lib]
+name = "mkff_sys"
+path = "src/lib.rs"
+
+[dependencies]

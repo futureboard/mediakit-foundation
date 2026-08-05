@@ -1,0 +1,39 @@
+set(MKFF_PLATFORM_LINUX_SOURCES
+    decoder.c
+    decoder_shared.c
+    drm_device.c
+    platform_api.c
+    va_display.c
+    video_frame.c
+    h264/h264_bitstream.c
+    h264/h264_sps_pps.c
+    h264/h264_slice.c
+    h264/h264_dpb.c
+)
+
+add_library(mkff_platform_linux SHARED ${MKFF_PLATFORM_LINUX_SOURCES})
+
+target_include_directories(mkff_platform_linux
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/include
+        ${PROJECT_SOURCE_DIR}
+)
+
+target_compile_definitions(mkff_platform_linux PRIVATE MKFF_BUILDING_SHARED)
+
+target_link_libraries(mkff_platform_linux
+    PRIVATE
+        PkgConfig::LIBVA
+        PkgConfig::LIBVA_DRM
+        PkgConfig::LIBDRM
+        Threads::Threads
+)
+
+set_target_properties(mkff_platform_linux PROPERTIES
+    C_VISIBILITY_PRESET hidden
+)
+
+install(TARGETS mkff_platform_linux
+    LIBRARY DESTINATION lib
+    RUNTIME DESTINATION bin
+)
