@@ -18,6 +18,7 @@ This milestone implements exactly one path end to end on Linux:
 ```
 H.264 Annex-B -> MKFF H.264 parser -> VA-API VLD decode
               -> reusable NV12 VA surface -> DMA-BUF export -> Rust FFI
+              -> Vulkan VkImage import (VK_EXT_image_drm_format_modifier)
 ```
 
 ## Layout
@@ -32,6 +33,7 @@ src/cli/                 mkff CLI (devices, va-info, decode-test,
                           export-test, benchmark)
 bindings/rust/mkff-sys   raw FFI declarations
 bindings/rust/mkff       safe RAII wrapper
+bindings/rust/mkff-vk    dma-buf -> VkImage import (zero-copy, no CPU readback)
 tests/                   CTest suite
 ```
 
@@ -41,6 +43,8 @@ tests/                   CTest suite
 - CMake >= 3.20, Ninja
 - pkg-config, `libva`, `libva-drm`, `libdrm` development packages
 - Rust toolchain (stable) for the bindings
+- A Vulkan driver with `VK_EXT_image_drm_format_modifier` support, only
+  if you use `mkff-vk` (optional; the C library and CLI don't need it)
 
 No FFmpeg, GStreamer, or GPL/LGPL dependency is used anywhere in this
 project.
@@ -66,10 +70,34 @@ mkff export-test input.h264 --frames 10
 mkff benchmark input.h264 --seconds 10
 ```
 
+## Vulkan import (`mkff-vk`)
+
+`mkff::VideoFrame::export_dmabuf()` gives you an `mkff::LinuxDmaBuf`
+(DRM fourcc, per-plane fd/offset/pitch, per-object DRM format
+modifier) — everything `VK_EXT_image_drm_format_modifier` needs.
+`mkff-vk::VulkanImporter::import()` turns that directly into a
+`VkImage` with no CPU copy:
+
+```rust
+let importer = mkff_vk::VulkanImporter::new()?;
+let dmabuf = frame.export_dmabuf()?;
+let image = importer.import(dmabuf)?; // VkImage, backed by the decoder's surface
+```
+
+Current scope: NV12 only, and only the single-dma-buf-object layout
+`libmkff_platform_linux` actually exports (`VA_EXPORT_SURFACE_COMPOSED_LAYERS`).
+Run `cargo run -p mkff-vk --example probe` to check whether a given
+GPU/driver has what's needed (`VK_KHR_external_memory_fd`,
+`VK_EXT_external_memory_dma_buf`, `VK_EXT_image_drm_format_modifier`,
+`VK_EXT_queue_family_foreign`, and the `samplerYcbcrConversion`
+feature) before wiring up a decode pipeline.
+
 ## Non-goals (this milestone)
 
-MP4/container demuxing, audio, WGPU/Vulkan rendering, playback UI,
-seeking, HEVC/VP9/AV1 decoding, software codecs, GUI frameworks.
+MP4/container demuxing, audio, playback UI, seeking, HEVC/VP9/AV1
+decoding, software codecs, GUI frameworks, disjoint multi-object
+dma-buf import, WGPU (Vulkan only for now — wgpu's external-memory
+import hooks are still unstable `wgpu-hal` surface).
 
 ## License
 
