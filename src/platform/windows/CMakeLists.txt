@@ -2,6 +2,7 @@ add_library(mkff_platform_windows SHARED
     d3d11_device.c
     decoder.c
     decoder_shared.c
+    guids.c
     h264_dxva_dpb.c
     platform_api.c
     video_frame.c
