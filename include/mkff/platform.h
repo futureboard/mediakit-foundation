@@ -100,8 +100,8 @@ typedef struct MKFF_PlatformAPI {
     MKFF_Result (*video_frame_export_d3d11_texture)(const MKFF_VideoFrame *frame, MKFF_WindowsD3D11TextureDesc *out_desc);
 
     /* Appended nullable CPU-plane map slots. Core only calls these when
-     * platform struct_size covers them; hardware backends leave them NULL
-     * or return NOT_SUPPORTED. */
+     * platform struct_size covers them. Hardware backends may implement
+     * GPU→CPU readback here, or leave NULL / return NOT_SUPPORTED. */
     MKFF_Result (*video_frame_map_cpu_planes)(const MKFF_VideoFrame *frame, MKFF_CpuPlaneDesc *out_planes);
     void        (*video_frame_unmap_cpu_planes)(const MKFF_VideoFrame *frame, MKFF_CpuPlaneDesc *planes);
 } MKFF_PlatformAPI;

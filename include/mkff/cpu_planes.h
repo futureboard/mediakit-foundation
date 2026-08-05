@@ -28,9 +28,16 @@ typedef struct MKFF_CpuPlaneDesc {
     uint32_t height_lines[MKFF_CPU_PLANES_MAX];
 } MKFF_CpuPlaneDesc;
 
-/* Maps a software-decoded frame's CPU planes for read-only access.
- * Hardware frames return MKFF_RESULT_ERROR_NOT_SUPPORTED (no full-frame
- * GPU readback). */
+/* Maps a frame's CPU planes for read-only access (NV12 / P010).
+ *
+ * Software frames expose decoder-owned buffers directly. Hardware frames
+ * succeed when the platform implements readback (Windows: D3D11 staging
+ * copy; macOS: CVPixelBuffer lock; Linux: vaDeriveImage + vaMapBuffer
+ * when the surface is CPU-mappable). Otherwise returns
+ * MKFF_RESULT_ERROR_NOT_SUPPORTED. Zero-copy GPU export paths are
+ * unchanged and remain preferred when the consumer can use them.
+ *
+ * Pointers in out_planes are valid until mkff_video_frame_unmap_cpu_planes(). */
 MKFF_API MKFF_Result mkff_video_frame_map_cpu_planes(const MKFF_VideoFrame *frame,
                                                       MKFF_CpuPlaneDesc *out_planes);
 MKFF_API void         mkff_video_frame_unmap_cpu_planes(const MKFF_VideoFrame *frame,

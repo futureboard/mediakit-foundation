@@ -4,6 +4,7 @@
 #include <CoreVideo/CoreVideo.h>
 #include <stdatomic.h>
 
+#include "mkff/cpu_planes.h"
 #include "mkff/macos/iosurface.h"
 #include "mkff/video_frame.h"
 #include "src/common/mkff_common.h"
@@ -19,6 +20,8 @@ typedef struct MacosVideoFrame {
     atomic_int refcount;
 
     MKFF_VideoFrameInfo info;
+
+    int cpu_planes_mapped; /* non-zero while CVPixelBuffer base addresses are locked */
 } MacosVideoFrame;
 
 /* Takes ownership of one CVPixelBufferRetain reference on `pixel_buffer`
@@ -39,5 +42,7 @@ MKFF_VideoFrame *macos_video_frame_retain(MKFF_VideoFrame *frame);
 void             macos_video_frame_release(MKFF_VideoFrame *frame);
 MKFF_Result      macos_video_frame_get_info(const MKFF_VideoFrame *frame, MKFF_VideoFrameInfo *out_info);
 MKFF_Result      macos_video_frame_export_iosurface(const MKFF_VideoFrame *frame, MKFF_MacosIOSurfaceDesc *out_desc);
+MKFF_Result      macos_video_frame_map_cpu_planes(const MKFF_VideoFrame *frame, MKFF_CpuPlaneDesc *out_planes);
+void             macos_video_frame_unmap_cpu_planes(const MKFF_VideoFrame *frame, MKFF_CpuPlaneDesc *planes);
 
 #endif /* MKFF_MACOS_VIDEO_FRAME_H */

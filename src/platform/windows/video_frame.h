@@ -3,6 +3,7 @@
 
 #include <stdatomic.h>
 
+#include "mkff/cpu_planes.h"
 #include "mkff/video_frame.h"
 #include "mkff/windows/d3d11.h"
 #include "src/common/mkff_common.h"
@@ -19,6 +20,9 @@ typedef struct WindowsVideoFrame {
     atomic_int refcount;
 
     MKFF_VideoFrameInfo info;
+
+    /* Owned while CPU planes are mapped; released on unmap / frame release. */
+    ID3D11Texture2D *staging;
 } WindowsVideoFrame;
 
 WindowsVideoFrame *windows_video_frame_create(DecoderShared *shared,
@@ -36,5 +40,7 @@ MKFF_VideoFrame *windows_video_frame_retain(MKFF_VideoFrame *frame);
 void             windows_video_frame_release(MKFF_VideoFrame *frame);
 MKFF_Result      windows_video_frame_get_info(const MKFF_VideoFrame *frame, MKFF_VideoFrameInfo *out_info);
 MKFF_Result      windows_video_frame_export_d3d11_texture(const MKFF_VideoFrame *frame, MKFF_WindowsD3D11TextureDesc *out_desc);
+MKFF_Result      windows_video_frame_map_cpu_planes(const MKFF_VideoFrame *frame, MKFF_CpuPlaneDesc *out_planes);
+void             windows_video_frame_unmap_cpu_planes(const MKFF_VideoFrame *frame, MKFF_CpuPlaneDesc *planes);
 
 #endif /* MKFF_WINDOWS_VIDEO_FRAME_H */

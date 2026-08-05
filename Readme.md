@@ -172,23 +172,33 @@ Rejected: 4:2:2 / 4:4:4, non-8/10 bit depth, tiles/WPP on HW paths this mileston
 Linux dma-buf → `VkImage` via `VK_EXT_image_drm_format_modifier`. NV12
 today; P010 drm fourcc is exported when Main10 surfaces are available.
 
-## WGPU viewer (`mkff-wgpu`)
+## WGPU demos (`mkff-wgpu`)
 
-Portable demo: software-decode HEVC Main → `map_cpu_planes` (NV12) →
-upload Y/UV as R8 + RG8 textures → YUV→RGB WGSL pass in a winit window.
+Portable demos: software-decode HEVC Main → `map_cpu_planes` (NV12).
+
+**Fullscreen WGSL viewer** (R8 + RG8 upload → YUV→RGB):
 
 ```sh
 cargo run -p mkff-wgpu --example view
 cargo run -p mkff-wgpu --example view -- path/to/clip.hevc
 ```
 
-Uses `SOFTWARE_ONLY` + libhevc (8-bit Main). Hardware zero-copy into wgpu
-is not wired yet. Needs a GPU/display; not part of default CI.
+**Simple player** (egui on wgpu — play/pause, frame step, loop, FPS):
+
+```sh
+cargo run -p mkff-wgpu --example player
+cargo run -p mkff-wgpu --example player -- path/to/clip.hevc
+```
+
+Defaults to `testdata/tiny_main_p_256x144.hevc` (I+P). Uses
+`SOFTWARE_ONLY` + libhevc (8-bit Main). Frames are decoded up front; no
+containers, audio, or bitstream seeking. Hardware zero-copy into wgpu is
+not wired yet. Needs a GPU/display; not part of default CI.
 
 ## Non-goals (this milestone)
 
-MP4/container demuxing, audio, playback UI, seeking, VP9/AV1, software
-H.264, GUI frameworks, mid-stream resolution change, long-term reference
+MP4/container demuxing, audio, bitstream seeking, VP9/AV1, software
+H.264, production GUI, mid-stream resolution change, long-term reference
 picture edge cases beyond the supported Main/Main10 subset.
 
 ## License

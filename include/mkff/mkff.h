@@ -16,6 +16,7 @@
 #include "mkff/error.h"
 #include "mkff/export.h"
 #include "mkff/log.h"
+#include "mkff/mp4_demux.h"
 #include "mkff/types.h"
 #include "mkff/video_decoder.h"
 #include "mkff/video_frame.h"

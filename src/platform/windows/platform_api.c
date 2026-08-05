@@ -56,9 +56,8 @@ static const MKFF_PlatformAPI kWindowsPlatformAPI = {
     .video_frame_export_iosurface = NULL,  /* macOS-only */
     .video_frame_export_d3d11_texture = windows_video_frame_export_d3d11_texture,
 
-    /* Hardware frames: core returns NOT_SUPPORTED when these are NULL. */
-    .video_frame_map_cpu_planes = NULL,
-    .video_frame_unmap_cpu_planes = NULL,
+    .video_frame_map_cpu_planes = windows_video_frame_map_cpu_planes,
+    .video_frame_unmap_cpu_planes = windows_video_frame_unmap_cpu_planes,
 };
 
 const MKFF_PlatformAPI *mkff_windows_platform_api(void) {

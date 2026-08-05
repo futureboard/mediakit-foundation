@@ -6,6 +6,12 @@ target_include_directories(test_context PRIVATE ${PROJECT_SOURCE_DIR}/include)
 target_link_libraries(test_context PRIVATE mkff)
 add_test(NAME test_context COMMAND test_context)
 
+# --- test_mp4_demux: progressive MP4 demux (+ HEVC SW decode when built) ---
+add_executable(test_mp4_demux test_mp4_demux.c)
+target_include_directories(test_mp4_demux PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(test_mp4_demux PRIVATE mkff)
+add_test(NAME test_mp4_demux COMMAND test_mp4_demux ${PROJECT_SOURCE_DIR}/testdata)
+
 # --- test_bitreader / test_h264_sps: white-box tests of the portable
 # H.264 parser (src/codecs/h264/), so they need neither a GPU nor any
 # platform-specific decode API. ---

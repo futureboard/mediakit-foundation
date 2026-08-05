@@ -7,6 +7,7 @@ set(MKFF_CORE_SOURCES
     software_decoder.c
     cpu_features.c
     simd/checksum.c
+    ${PROJECT_SOURCE_DIR}/src/demux/mp4/mp4_demux.c
 )
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")

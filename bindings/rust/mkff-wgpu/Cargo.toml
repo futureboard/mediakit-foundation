@@ -3,15 +3,21 @@ name = "mkff-wgpu"
 version = "0.1.0-dev"
 edition = "2021"
 license = "MIT"
-description = "WGPU example: display MKFF software-decoded HEVC frames (NV12 CPU upload)"
+description = "WGPU / egui demos: display MKFF software-decoded HEVC frames"
 publish = false
 
 [[example]]
 name = "view"
 path = "examples/view.rs"
 
+[[example]]
+name = "player"
+path = "examples/player.rs"
+
 [dependencies]
 bytemuck = { version = "1", features = ["derive"] }
+eframe = { version = "0.31.1", default-features = false, features = ["default_fonts", "wgpu"] }
+egui = "0.31.1"
 mkff = { path = "../mkff", default-features = false, features = ["bundled", "hevc", "hevc-software-fallback"] }
 pollster = "0.4"
 wgpu = { version = "24", features = ["wgsl"] }

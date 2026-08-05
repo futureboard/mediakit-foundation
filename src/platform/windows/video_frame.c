@@ -42,11 +42,23 @@ MKFF_VideoFrame *windows_video_frame_retain(MKFF_VideoFrame *handle) {
     return handle;
 }
 
+static void windows_video_frame_release_staging(WindowsVideoFrame *frame) {
+    if (!frame || !frame->staging) {
+        return;
+    }
+    if (frame->shared && frame->shared->device_context) {
+        ID3D11DeviceContext_Unmap(frame->shared->device_context, (ID3D11Resource *)frame->staging, 0);
+    }
+    IUnknown_Release((IUnknown *)frame->staging);
+    frame->staging = NULL;
+}
+
 void windows_video_frame_release(MKFF_VideoFrame *handle) {
     WindowsVideoFrame *frame = (WindowsVideoFrame *)handle;
     if (!frame) return;
 
     if (atomic_fetch_sub_explicit(&frame->refcount, 1, memory_order_acq_rel) == 1) {
+        windows_video_frame_release_staging(frame);
         decoder_shared_pool_release(frame->shared, frame->array_slice);
         decoder_shared_unref(frame->shared);
         free(frame);
@@ -96,4 +108,122 @@ MKFF_Result windows_video_frame_export_d3d11_texture(const MKFF_VideoFrame *hand
     out_desc->shared_handle = shared_handle;
 
     return MKFF_RESULT_OK;
+}
+
+MKFF_Result windows_video_frame_map_cpu_planes(const MKFF_VideoFrame *handle, MKFF_CpuPlaneDesc *out_planes) {
+    WindowsVideoFrame *frame = (WindowsVideoFrame *)handle;
+    if (!frame || !out_planes || !frame->shared) {
+        return MKFF_RESULT_ERROR_INVALID_ARGUMENT;
+    }
+    if (frame->staging) {
+        return MKFF_RESULT_ERROR_INVALID_ARGUMENT; /* already mapped */
+    }
+
+    DecoderShared *shared = frame->shared;
+    if (!shared->device || !shared->device_context || !shared->texture_array) {
+        return MKFF_RESULT_ERROR_DEVICE;
+    }
+
+    DXGI_FORMAT dxgi_format = shared->dxgi_format ? shared->dxgi_format : DXGI_FORMAT_NV12;
+    if (dxgi_format != DXGI_FORMAT_NV12 && dxgi_format != DXGI_FORMAT_P010) {
+        return MKFF_RESULT_ERROR_NOT_SUPPORTED;
+    }
+    if (frame->info.format != MKFF_PIXEL_FORMAT_NV12 && frame->info.format != MKFF_PIXEL_FORMAT_P010) {
+        return MKFF_RESULT_ERROR_NOT_SUPPORTED;
+    }
+
+    uint32_t tex_w = shared->coded_width ? shared->coded_width : frame->info.width;
+    uint32_t tex_h = shared->coded_height ? shared->coded_height : frame->info.height;
+    if (tex_w == 0 || tex_h == 0) {
+        return MKFF_RESULT_ERROR_DEVICE;
+    }
+
+    D3D11_TEXTURE2D_DESC staging_desc;
+    memset(&staging_desc, 0, sizeof(staging_desc));
+    staging_desc.Width = tex_w;
+    staging_desc.Height = tex_h;
+    staging_desc.MipLevels = 1;
+    staging_desc.ArraySize = 1;
+    staging_desc.Format = dxgi_format;
+    staging_desc.SampleDesc.Count = 1;
+    staging_desc.Usage = D3D11_USAGE_STAGING;
+    staging_desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+
+    ID3D11Texture2D *staging = NULL;
+    HRESULT hr = ID3D11Device_CreateTexture2D(shared->device, &staging_desc, NULL, &staging);
+    if (FAILED(hr) || !staging) {
+        decoder_shared_set_error(shared, "ID3D11Device::CreateTexture2D failed for CPU readback staging");
+        return MKFF_RESULT_ERROR_DEVICE;
+    }
+
+    /* MipLevels == 1 on the decode texture array, so subresource == array slice. */
+    UINT src_subresource = frame->array_slice;
+    ID3D11DeviceContext_CopySubresourceRegion(shared->device_context,
+                                              (ID3D11Resource *)staging,
+                                              0,
+                                              0,
+                                              0,
+                                              0,
+                                              (ID3D11Resource *)shared->texture_array,
+                                              src_subresource,
+                                              NULL);
+
+    D3D11_MAPPED_SUBRESOURCE mapped;
+    memset(&mapped, 0, sizeof(mapped));
+    hr = ID3D11DeviceContext_Map(shared->device_context,
+                                 (ID3D11Resource *)staging,
+                                 0,
+                                 D3D11_MAP_READ,
+                                 0,
+                                 &mapped);
+    if (FAILED(hr) || !mapped.pData) {
+        IUnknown_Release((IUnknown *)staging);
+        decoder_shared_set_error(shared, "ID3D11DeviceContext::Map failed on CPU readback staging");
+        return MKFF_RESULT_ERROR_DEVICE;
+    }
+
+    frame->staging = staging;
+
+    uint32_t requested_size = out_planes->struct_size;
+    MKFF_INIT_STRUCT_HEADER(out_planes);
+    if (requested_size) {
+        out_planes->struct_size = requested_size;
+    }
+    out_planes->format = frame->info.format;
+    out_planes->width = frame->info.width;
+    out_planes->height = frame->info.height;
+    out_planes->plane_count = 2;
+    out_planes->data[0] = (const uint8_t *)mapped.pData;
+    /* NV12/P010: UV plane begins at a 2D offset of (0, texture Height). */
+    out_planes->data[1] = (const uint8_t *)mapped.pData + (size_t)mapped.RowPitch * (size_t)tex_h;
+    out_planes->stride[0] = (uint32_t)mapped.RowPitch;
+    out_planes->stride[1] = (uint32_t)mapped.RowPitch;
+    out_planes->height_lines[0] = frame->info.height;
+    out_planes->height_lines[1] = frame->info.height / 2u;
+    out_planes->data[2] = NULL;
+    out_planes->data[3] = NULL;
+    out_planes->stride[2] = 0;
+    out_planes->stride[3] = 0;
+    out_planes->height_lines[2] = 0;
+    out_planes->height_lines[3] = 0;
+
+    return MKFF_RESULT_OK;
+}
+
+void windows_video_frame_unmap_cpu_planes(const MKFF_VideoFrame *handle, MKFF_CpuPlaneDesc *planes) {
+    WindowsVideoFrame *frame = (WindowsVideoFrame *)handle;
+    if (!frame) {
+        return;
+    }
+
+    windows_video_frame_release_staging(frame);
+
+    if (planes) {
+        for (uint32_t i = 0; i < MKFF_CPU_PLANES_MAX; i++) {
+            planes->data[i] = NULL;
+            planes->stride[i] = 0;
+            planes->height_lines[i] = 0;
+        }
+        planes->plane_count = 0;
+    }
 }

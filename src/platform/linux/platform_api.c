@@ -112,6 +112,10 @@ static const MKFF_PlatformAPI kLinuxPlatformAPI = {
     .video_frame_release = linux_video_frame_release,
     .video_frame_get_info = linux_video_frame_get_info,
     .video_frame_export_dmabuf = linux_video_frame_export_dmabuf,
+    .video_frame_export_iosurface = NULL,       /* macOS-only */
+    .video_frame_export_d3d11_texture = NULL,   /* Windows-only */
+    .video_frame_map_cpu_planes = linux_video_frame_map_cpu_planes,
+    .video_frame_unmap_cpu_planes = linux_video_frame_unmap_cpu_planes,
 };
 
 const MKFF_PlatformAPI *mkff_linux_platform_api(void) {
