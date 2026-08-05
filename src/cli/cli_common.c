@@ -4,6 +4,11 @@
 #include <stdlib.h>
 #include <time.h>
 
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
+
 int cli_read_file(const char *path, uint8_t **out_data, size_t *out_size) {
     FILE *f = fopen(path, "rb");
     if (!f) return -1;
@@ -92,9 +97,16 @@ size_t cli_split_access_units(const uint8_t *data, size_t size, CliAuRange *out_
 }
 
 double cli_now_seconds(void) {
+#if defined(_WIN32)
+    LARGE_INTEGER counter, frequency;
+    QueryPerformanceCounter(&counter);
+    QueryPerformanceFrequency(&frequency);
+    return (double)counter.QuadPart / (double)frequency.QuadPart;
+#else
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
+#endif
 }
 
 void cli_log_callback(void *user_data, MKFF_LogLevel level, const char *component, const char *message) {

@@ -1,8 +1,24 @@
 #include <assert.h>
-#include <dirent.h>
 #include <stdio.h>
 
 #include "mkff/mkff.h"
+
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+
+/* Windows has no /proc/self/fd; GetProcessHandleCount() (covering
+ * every kernel object handle, not just files) is the closest analogue
+ * for "did repeated create/destroy leak an OS resource". */
+static int count_open_fds(void) {
+    DWORD count = 0;
+    if (!GetProcessHandleCount(GetCurrentProcess(), &count)) {
+        return -1;
+    }
+    return (int)count;
+}
+#else
+#include <dirent.h>
 
 static int count_open_fds(void) {
     DIR *d = opendir("/proc/self/fd");
@@ -15,6 +31,7 @@ static int count_open_fds(void) {
     closedir(d);
     return count;
 }
+#endif
 
 static int g_saw_log = 0;
 
