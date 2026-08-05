@@ -96,11 +96,14 @@ if(TARGET libhevcdec)
                 if(_src MATCHES "\\.(s|S)$")
                     continue()
                 endif()
+                # Keep decoder/arm/ihevcd_function_selector.c — on DARWIN+ARMV8
+                # it routes to ihevcd_init_function_ptr_generic (provides
+                # ihevcd_init_arch / ihevcd_init_function_ptr). Drop only the
+                # ELF asm selectors that pull in missing .s symbols.
                 if(_src MATCHES "ihevc_function_selector_av8\\.c$"
                    OR _src MATCHES "ihevc_function_selector_a9q\\.c$"
                    OR _src MATCHES "ihevcd_function_selector_av8\\.c$"
-                   OR _src MATCHES "ihevcd_function_selector_a9q\\.c$"
-                   OR _src MATCHES "decoder/arm/ihevcd_function_selector\\.c$")
+                   OR _src MATCHES "ihevcd_function_selector_a9q\\.c$")
                     continue()
                 endif()
                 list(APPEND _mkff_hevc_filtered "${_src}")
