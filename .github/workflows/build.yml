@@ -20,21 +20,25 @@ jobs:
 
       - name: Configure
         run: cmake --preset linux-clang-debug
+        # FetchContent needs network for pinned libhevc when not vendored.
 
       - name: Build
         run: cmake --build --preset linux-clang-debug
 
       - name: Test
-        run: ctest --preset linux-clang-debug
+        run: ctest --preset linux-clang-debug --output-on-failure
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cargo build
-        run: cargo build --manifest-path bindings/rust/Cargo.toml
+      - name: Cargo build (bundled native)
+        run: cargo build -p mkff
 
-      - name: Cargo test
-        run: cargo test --manifest-path bindings/rust/Cargo.toml
+      - name: Cargo test (bundled native)
+        run: cargo test -p mkff
+
+      - name: Cargo test mkff-vk
+        run: cargo test -p mkff-vk
 
   macos:
     name: macOS (Clang / VideoToolbox)
@@ -52,7 +56,16 @@ jobs:
         run: cmake --build --preset macos-clang-debug
 
       - name: Test
-        run: ctest --preset macos-clang-debug
+        run: ctest --preset macos-clang-debug --output-on-failure
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo build (bundled native)
+        run: cargo build -p mkff
+
+      - name: Cargo test (bundled native)
+        run: cargo test -p mkff
 
   windows:
     name: Windows (MSVC / D3D11 Video Decode)
@@ -75,4 +88,13 @@ jobs:
         run: cmake --build --preset windows-msvc-debug
 
       - name: Test
-        run: ctest --preset windows-msvc-debug
+        run: ctest --preset windows-msvc-debug --output-on-failure
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo build (bundled native)
+        run: cargo build -p mkff
+
+      - name: Cargo test (bundled native)
+        run: cargo test -p mkff

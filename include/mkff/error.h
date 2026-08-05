@@ -19,7 +19,8 @@ typedef enum MKFF_Result {
     MKFF_RESULT_ERROR_BITSTREAM          = -7,
     MKFF_RESULT_ERROR_DECODE             = -8,
     MKFF_RESULT_ERROR_POOL_EXHAUSTED     = -9,
-    MKFF_RESULT_ERROR_INTERNAL           = -10
+    MKFF_RESULT_ERROR_INTERNAL           = -10,
+    MKFF_RESULT_ERROR_CODEC_UNAVAILABLE  = -11  /* requested codec/backend not built or not present */
 } MKFF_Result;
 
 MKFF_API const char *mkff_result_to_string(MKFF_Result result);

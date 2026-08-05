@@ -11,6 +11,7 @@ fn context_create_destroy_repeated() {
     }
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn enumerate_drm_devices_does_not_panic() {
     let ctx = Context::new().unwrap();
@@ -53,4 +54,19 @@ fn decoder_lifecycle_is_safe_without_a_gpu() {
     }
 
     let _ = decoder.flush();
+}
+
+#[test]
+fn hevc_software_decoder_create_is_safe() {
+    use mkff::VideoBackend;
+    let ctx = Context::new().unwrap();
+    let decoder = ctx.video_decoder_hevc_with_backend(0, VideoBackend::MKFF_VIDEO_BACKEND_SOFTWARE_ONLY);
+    match decoder {
+        Ok(decoder) => {
+            let _ = decoder.info();
+        }
+        Err(_) => {
+            // Acceptable when HEVC software was disabled at build time.
+        }
+    }
 }

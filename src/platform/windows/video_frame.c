@@ -11,6 +11,7 @@ WindowsVideoFrame *windows_video_frame_create(DecoderShared *shared,
                                                uint32_t array_slice,
                                                uint32_t width,
                                                uint32_t height,
+                                               MKFF_PixelFormat format,
                                                int64_t pts,
                                                int64_t dts,
                                                int is_key_frame) {
@@ -25,7 +26,7 @@ WindowsVideoFrame *windows_video_frame_create(DecoderShared *shared,
     MKFF_INIT_STRUCT_HEADER(&frame->info);
     frame->info.width = width;
     frame->info.height = height;
-    frame->info.format = MKFF_PIXEL_FORMAT_NV12;
+    frame->info.format = format;
     frame->info.pts = pts;
     frame->info.dts = dts;
     frame->info.is_key_frame = is_key_frame ? 1u : 0u;
@@ -89,7 +90,7 @@ MKFF_Result windows_video_frame_export_d3d11_texture(const MKFF_VideoFrame *hand
 
     out_desc->width = frame->info.width;
     out_desc->height = frame->info.height;
-    out_desc->dxgi_format = DXGI_FORMAT_NV12;
+    out_desc->dxgi_format = shared->dxgi_format ? (uint32_t)shared->dxgi_format : (uint32_t)DXGI_FORMAT_NV12;
     out_desc->array_slice = frame->array_slice;
     out_desc->texture = shared->texture_array;
     out_desc->shared_handle = shared_handle;

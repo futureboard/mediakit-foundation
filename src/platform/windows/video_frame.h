@@ -25,6 +25,7 @@ WindowsVideoFrame *windows_video_frame_create(DecoderShared *shared,
                                                uint32_t array_slice,
                                                uint32_t width,
                                                uint32_t height,
+                                               MKFF_PixelFormat format,
                                                int64_t pts,
                                                int64_t dts,
                                                int is_key_frame);

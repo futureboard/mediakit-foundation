@@ -15,7 +15,8 @@ LinuxVideoFrame *linux_video_frame_create(DecoderShared *shared,
                                            uint32_t height,
                                            int64_t pts,
                                            int64_t dts,
-                                           int is_key_frame) {
+                                           int is_key_frame,
+                                           MKFF_PixelFormat format) {
     LinuxVideoFrame *frame = (LinuxVideoFrame *)calloc(1, sizeof(LinuxVideoFrame));
     if (!frame) return NULL;
 
@@ -28,7 +29,7 @@ LinuxVideoFrame *linux_video_frame_create(DecoderShared *shared,
     MKFF_INIT_STRUCT_HEADER(&frame->info);
     frame->info.width = width;
     frame->info.height = height;
-    frame->info.format = MKFF_PIXEL_FORMAT_NV12;
+    frame->info.format = format;
     frame->info.pts = pts;
     frame->info.dts = dts;
     frame->info.is_key_frame = is_key_frame ? 1u : 0u;

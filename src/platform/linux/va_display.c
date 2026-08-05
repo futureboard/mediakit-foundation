@@ -151,6 +151,16 @@ int linux_va_h264_profile_candidates(uint32_t profile_idc, VAProfile *out_candid
     return n;
 }
 
+int linux_va_hevc_profile_candidates(uint32_t bit_depth, VAProfile *out_candidates, int capacity) {
+    int n = 0;
+    if (bit_depth == 10) {
+        if (n < capacity) out_candidates[n++] = VAProfileHEVCMain10;
+    } else if (bit_depth == 8) {
+        if (n < capacity) out_candidates[n++] = VAProfileHEVCMain;
+    }
+    return n;
+}
+
 VAProfile linux_va_select_supported_profile(VADisplay dpy, const VAProfile *candidates, int count) {
     int max_profiles = vaMaxNumProfiles(dpy);
     if (max_profiles <= 0) return VAProfileNone;

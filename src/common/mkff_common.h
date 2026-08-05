@@ -21,9 +21,9 @@ typedef struct MKFF_HandleCommon {
 } MKFF_HandleCommon;
 
 #if defined(_WIN32)
-#define MKFF_PLATFORM_MODULE_FILENAME "mkff_platform_linux.dll"
+#define MKFF_PLATFORM_MODULE_FILENAME "MKFF.Platform.Windows.dll"
 #elif defined(__APPLE__)
-#define MKFF_PLATFORM_MODULE_FILENAME "libmkff_platform_linux.dylib"
+#define MKFF_PLATFORM_MODULE_FILENAME "libmkff_platform_macos.dylib"
 #else
 #define MKFF_PLATFORM_MODULE_FILENAME "libmkff_platform_linux.so"
 #endif

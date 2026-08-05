@@ -19,6 +19,9 @@ MKFF_Result linux_va_query_profiles(VADisplay dpy, MKFF_VaProfileInfo *out_array
  * Baseline content). Returns the number of candidates written. */
 int linux_va_h264_profile_candidates(uint32_t profile_idc, VAProfile *out_candidates, int capacity);
 
+/* Maps HEVC bit depth (8 → Main, 10 → Main10) to VAProfile candidates. */
+int linux_va_hevc_profile_candidates(uint32_t bit_depth, VAProfile *out_candidates, int capacity);
+
 /* Finds the first candidate profile that the display both reports via
  * vaQueryConfigProfiles() and supports VAEntrypointVLD for. Returns
  * VAProfileNone if none match. */

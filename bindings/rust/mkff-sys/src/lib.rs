@@ -52,6 +52,7 @@ pub enum MKFF_Result {
     MKFF_RESULT_ERROR_DECODE = -8,
     MKFF_RESULT_ERROR_POOL_EXHAUSTED = -9,
     MKFF_RESULT_ERROR_INTERNAL = -10,
+    MKFF_RESULT_ERROR_CODEC_UNAVAILABLE = -11,
 }
 
 #[repr(i32)]
@@ -70,6 +71,15 @@ pub enum MKFF_LogLevel {
 pub enum MKFF_PixelFormat {
     MKFF_PIXEL_FORMAT_UNKNOWN = 0,
     MKFF_PIXEL_FORMAT_NV12 = 1,
+    MKFF_PIXEL_FORMAT_P010 = 2,
+}
+
+#[repr(i32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MKFF_VideoBackend {
+    MKFF_VIDEO_BACKEND_AUTO = 0,
+    MKFF_VIDEO_BACKEND_HARDWARE_ONLY = 1,
+    MKFF_VIDEO_BACKEND_SOFTWARE_ONLY = 2,
 }
 
 #[repr(i32)]
@@ -154,6 +164,7 @@ pub struct MKFF_VideoDecoderDesc {
     pub max_surfaces: u32,
     pub width_hint: u32,
     pub height_hint: u32,
+    pub backend: MKFF_VideoBackend,
 }
 
 #[repr(C)]
@@ -169,8 +180,31 @@ pub struct MKFF_VideoDecoderInfo {
     pub output_format: MKFF_PixelFormat,
     pub surface_pool_size: u32,
     pub surface_pool_capacity: u32,
+    pub backend: MKFF_VideoBackend,
+    pub bit_depth: u32,
+    pub chroma_format_idc: u32,
+    pub hardware: u32,
 }
 
+pub const MKFF_CPU_PLANES_MAX: usize = 4;
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct MKFF_CpuPlaneDesc {
+    pub struct_size: u32,
+    pub abi_version: u32,
+    pub reserved: [u32; 4],
+    pub format: MKFF_PixelFormat,
+    pub width: u32,
+    pub height: u32,
+    pub plane_count: u32,
+    pub data: [*const u8; MKFF_CPU_PLANES_MAX],
+    pub stride: [u32; MKFF_CPU_PLANES_MAX],
+    pub height_lines: [u32; MKFF_CPU_PLANES_MAX],
+}
+
+// Linux VA-API / dma-buf extensions — only exported from libmkff on Linux.
+#[cfg(target_os = "linux")]
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct MKFF_DrmDeviceInfo {
@@ -183,6 +217,7 @@ pub struct MKFF_DrmDeviceInfo {
     pub device_id: u32,
 }
 
+#[cfg(target_os = "linux")]
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct MKFF_VaInfo {
@@ -194,6 +229,7 @@ pub struct MKFF_VaInfo {
     pub minor_version: i32,
 }
 
+#[cfg(target_os = "linux")]
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct MKFF_VaProfileInfo {
@@ -205,6 +241,7 @@ pub struct MKFF_VaProfileInfo {
     pub entrypoint: MKFF_VideoEntrypoint,
 }
 
+#[cfg(target_os = "linux")]
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct MKFF_LinuxDmaBufObject {
@@ -213,6 +250,7 @@ pub struct MKFF_LinuxDmaBufObject {
     pub modifier: u64,
 }
 
+#[cfg(target_os = "linux")]
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct MKFF_LinuxDmaBufPlane {
@@ -222,6 +260,7 @@ pub struct MKFF_LinuxDmaBufPlane {
     pub pad0: u32,
 }
 
+#[cfg(target_os = "linux")]
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct MKFF_LinuxDmaBufDesc {
@@ -268,7 +307,15 @@ extern "C" {
     pub fn mkff_video_frame_retain(frame: *mut MKFF_VideoFrame) -> *mut MKFF_VideoFrame;
     pub fn mkff_video_frame_release(frame: *mut MKFF_VideoFrame);
     pub fn mkff_video_frame_get_info(frame: *const MKFF_VideoFrame, out_info: *mut MKFF_VideoFrameInfo) -> MKFF_Result;
+    pub fn mkff_video_frame_map_cpu_planes(
+        frame: *const MKFF_VideoFrame,
+        out_planes: *mut MKFF_CpuPlaneDesc,
+    ) -> MKFF_Result;
+    pub fn mkff_video_frame_unmap_cpu_planes(frame: *const MKFF_VideoFrame, planes: *mut MKFF_CpuPlaneDesc);
+}
 
+#[cfg(target_os = "linux")]
+extern "C" {
     pub fn mkff_linux_enumerate_drm_devices(
         context: *mut MKFF_Context,
         out_array: *mut MKFF_DrmDeviceInfo,

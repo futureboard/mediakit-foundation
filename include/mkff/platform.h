@@ -24,6 +24,7 @@
 #include <stdint.h>
 
 #include "mkff/abi.h"
+#include "mkff/cpu_planes.h"
 #include "mkff/error.h"
 #include "mkff/linux/dmabuf.h"
 #include "mkff/linux/drm.h"
@@ -97,6 +98,12 @@ typedef struct MKFF_PlatformAPI {
     MKFF_Result (*video_frame_export_iosurface)(const MKFF_VideoFrame *frame, MKFF_MacosIOSurfaceDesc *out_desc);
     /* --- Windows --- */
     MKFF_Result (*video_frame_export_d3d11_texture)(const MKFF_VideoFrame *frame, MKFF_WindowsD3D11TextureDesc *out_desc);
+
+    /* Appended nullable CPU-plane map slots. Core only calls these when
+     * platform struct_size covers them; hardware backends leave them NULL
+     * or return NOT_SUPPORTED. */
+    MKFF_Result (*video_frame_map_cpu_planes)(const MKFF_VideoFrame *frame, MKFF_CpuPlaneDesc *out_planes);
+    void        (*video_frame_unmap_cpu_planes)(const MKFF_VideoFrame *frame, MKFF_CpuPlaneDesc *planes);
 } MKFF_PlatformAPI;
 
 typedef const MKFF_PlatformAPI *(*MKFF_PlatformGetApiFn)(uint32_t requested_abi_version);

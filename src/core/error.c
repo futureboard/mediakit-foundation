@@ -15,6 +15,7 @@ const char *mkff_result_to_string(MKFF_Result result) {
         case MKFF_RESULT_ERROR_DECODE:              return "decode error";
         case MKFF_RESULT_ERROR_POOL_EXHAUSTED:      return "surface pool exhausted";
         case MKFF_RESULT_ERROR_INTERNAL:            return "internal error";
+        case MKFF_RESULT_ERROR_CODEC_UNAVAILABLE:   return "codec unavailable";
         default:                                    return "unknown result";
     }
 }

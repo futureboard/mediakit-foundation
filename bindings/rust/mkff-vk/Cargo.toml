@@ -7,4 +7,4 @@ description = "Zero-copy dma-buf -> VkImage import for MediaKit Foundation Frame
 
 [dependencies]
 ash = { version = "0.38", default-features = false, features = ["loaded", "std", "debug"] }
-mkff = { path = "../mkff" }
+mkff = { path = "../mkff", default-features = false, features = ["bundled"] }

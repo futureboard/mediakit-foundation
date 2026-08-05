@@ -31,6 +31,7 @@ typedef struct DecoderShared {
     uint32_t coded_height;
     uint32_t display_width;
     uint32_t display_height;
+    DXGI_FORMAT dxgi_format; /* NV12 (Main 8-bit) or P010 (Main10) */
     MKFF_VideoProfile profile;
 
     CRITICAL_SECTION pool_lock;

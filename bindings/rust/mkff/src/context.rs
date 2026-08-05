@@ -2,6 +2,7 @@ use std::ptr;
 
 use crate::decoder::VideoDecoder;
 use crate::error::{check, Result};
+#[cfg(target_os = "linux")]
 use crate::linux::{DrmDeviceInfo, VaInfo, VaProfileInfo};
 
 /// Owns one `MKFF_Context`. Dropping it destroys the underlying C
@@ -40,9 +41,37 @@ impl Context {
     }
 
     pub fn video_decoder_h264(&self, max_surfaces: u32) -> Result<VideoDecoder<'_>> {
-        VideoDecoder::create(self, mkff_sys::MKFF_VideoCodec::MKFF_VIDEO_CODEC_H264, max_surfaces)
+        VideoDecoder::create(
+            self,
+            mkff_sys::MKFF_VideoCodec::MKFF_VIDEO_CODEC_H264,
+            max_surfaces,
+            mkff_sys::MKFF_VideoBackend::MKFF_VIDEO_BACKEND_AUTO,
+        )
     }
 
+    pub fn video_decoder_hevc(&self, max_surfaces: u32) -> Result<VideoDecoder<'_>> {
+        VideoDecoder::create(
+            self,
+            mkff_sys::MKFF_VideoCodec::MKFF_VIDEO_CODEC_HEVC,
+            max_surfaces,
+            mkff_sys::MKFF_VideoBackend::MKFF_VIDEO_BACKEND_AUTO,
+        )
+    }
+
+    pub fn video_decoder_hevc_with_backend(
+        &self,
+        max_surfaces: u32,
+        backend: mkff_sys::MKFF_VideoBackend,
+    ) -> Result<VideoDecoder<'_>> {
+        VideoDecoder::create(
+            self,
+            mkff_sys::MKFF_VideoCodec::MKFF_VIDEO_CODEC_HEVC,
+            max_surfaces,
+            backend,
+        )
+    }
+
+    #[cfg(target_os = "linux")]
     pub fn linux_enumerate_drm_devices(&self) -> Result<Vec<DrmDeviceInfo>> {
         let mut count: u32 = 0;
         check(unsafe { mkff_sys::mkff_linux_enumerate_drm_devices(self.ptr, ptr::null_mut(), 0, &mut count) })?;
@@ -57,6 +86,7 @@ impl Context {
         Ok(buf.iter().map(DrmDeviceInfo::from_raw).collect())
     }
 
+    #[cfg(target_os = "linux")]
     pub fn linux_query_va_info(&self, drm_device_path: Option<&str>) -> Result<VaInfo> {
         let c_path = drm_device_path.map(|p| std::ffi::CString::new(p).expect("path must not contain NUL"));
         let path_ptr = c_path.as_ref().map_or(ptr::null(), |c| c.as_ptr());
@@ -66,6 +96,7 @@ impl Context {
         Ok(VaInfo::from_raw(&raw))
     }
 
+    #[cfg(target_os = "linux")]
     pub fn linux_query_va_profiles(&self, drm_device_path: Option<&str>) -> Result<Vec<VaProfileInfo>> {
         let c_path = drm_device_path.map(|p| std::ffi::CString::new(p).expect("path must not contain NUL"));
         let path_ptr = c_path.as_ref().map_or(ptr::null(), |c| c.as_ptr());
@@ -90,6 +121,7 @@ impl Drop for Context {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn zeroed_drm_device_info() -> mkff_sys::MKFF_DrmDeviceInfo {
     let mut v: mkff_sys::MKFF_DrmDeviceInfo = unsafe { std::mem::zeroed() };
     v.struct_size = std::mem::size_of::<mkff_sys::MKFF_DrmDeviceInfo>() as u32;
@@ -97,6 +129,7 @@ fn zeroed_drm_device_info() -> mkff_sys::MKFF_DrmDeviceInfo {
     v
 }
 
+#[cfg(target_os = "linux")]
 fn zeroed_va_info() -> mkff_sys::MKFF_VaInfo {
     let mut v: mkff_sys::MKFF_VaInfo = unsafe { std::mem::zeroed() };
     v.struct_size = std::mem::size_of::<mkff_sys::MKFF_VaInfo>() as u32;
@@ -104,6 +137,7 @@ fn zeroed_va_info() -> mkff_sys::MKFF_VaInfo {
     v
 }
 
+#[cfg(target_os = "linux")]
 fn zeroed_va_profile_info() -> mkff_sys::MKFF_VaProfileInfo {
     let mut v: mkff_sys::MKFF_VaProfileInfo = unsafe { std::mem::zeroed() };
     v.struct_size = std::mem::size_of::<mkff_sys::MKFF_VaProfileInfo>() as u32;

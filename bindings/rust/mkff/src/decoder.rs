@@ -33,10 +33,19 @@ pub struct DecoderInfo {
     pub output_format: mkff_sys::MKFF_PixelFormat,
     pub surface_pool_size: u32,
     pub surface_pool_capacity: u32,
+    pub backend: mkff_sys::MKFF_VideoBackend,
+    pub bit_depth: u32,
+    pub chroma_format_idc: u32,
+    pub hardware: bool,
 }
 
 impl<'ctx> VideoDecoder<'ctx> {
-    pub(crate) fn create(context: &'ctx Context, codec: mkff_sys::MKFF_VideoCodec, max_surfaces: u32) -> Result<Self> {
+    pub(crate) fn create(
+        context: &'ctx Context,
+        codec: mkff_sys::MKFF_VideoCodec,
+        max_surfaces: u32,
+        backend: mkff_sys::MKFF_VideoBackend,
+    ) -> Result<Self> {
         let desc = mkff_sys::MKFF_VideoDecoderDesc {
             struct_size: std::mem::size_of::<mkff_sys::MKFF_VideoDecoderDesc>() as u32,
             abi_version: mkff_sys::MKFF_ABI_VERSION,
@@ -45,6 +54,7 @@ impl<'ctx> VideoDecoder<'ctx> {
             max_surfaces,
             width_hint: 0,
             height_hint: 0,
+            backend,
         };
 
         let mut ptr = ptr::null_mut();
@@ -88,6 +98,10 @@ impl<'ctx> VideoDecoder<'ctx> {
             output_format: raw.output_format,
             surface_pool_size: raw.surface_pool_size,
             surface_pool_capacity: raw.surface_pool_capacity,
+            backend: raw.backend,
+            bit_depth: raw.bit_depth,
+            chroma_format_idc: raw.chroma_format_idc,
+            hardware: raw.hardware != 0,
         })
     }
 }

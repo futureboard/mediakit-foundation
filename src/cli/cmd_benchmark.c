@@ -6,15 +6,21 @@
 
 int cmd_benchmark(int argc, char **argv) {
     if (argc < 2) {
-        fprintf(stderr, "usage: benchmark <input.h264> [--seconds N]\n");
+        fprintf(stderr, "usage: benchmark <input> [--codec h264|hevc] [--seconds N]\n");
         return 2;
     }
     const char *input_path = argv[1];
     double duration_seconds = 10.0;
+    MKFF_VideoCodec codec = MKFF_VIDEO_CODEC_H264;
 
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "--seconds") == 0 && i + 1 < argc) {
             duration_seconds = strtod(argv[++i], NULL);
+        } else if (strcmp(argv[i], "--codec") == 0 && i + 1 < argc) {
+            if (cli_parse_codec_name(argv[++i], &codec) != 0) {
+                fprintf(stderr, "unknown codec (use h264 or hevc)\n");
+                return 2;
+            }
         }
     }
 
@@ -26,9 +32,11 @@ int cmd_benchmark(int argc, char **argv) {
     }
 
     CliAuRange *aus = (CliAuRange *)malloc(sizeof(CliAuRange) * 65536);
-    size_t au_count = cli_split_access_units(file_data, file_size, aus, 65536);
+    size_t au_count = (codec == MKFF_VIDEO_CODEC_HEVC)
+                          ? cli_split_hevc_access_units(file_data, file_size, aus, 65536)
+                          : cli_split_access_units(file_data, file_size, aus, 65536);
     if (au_count == 0) {
-        fprintf(stderr, "no H.264 access units found in %s\n", input_path);
+        fprintf(stderr, "no %s access units found in %s\n", cli_codec_name(codec), input_path);
         free(aus);
         free(file_data);
         return 1;
@@ -56,7 +64,8 @@ int cmd_benchmark(int argc, char **argv) {
     while (elapsed < duration_seconds) {
         MKFF_VideoDecoderDesc dec_desc;
         MKFF_INIT_STRUCT_HEADER(&dec_desc);
-        dec_desc.codec = MKFF_VIDEO_CODEC_H264;
+        dec_desc.codec = codec;
+        dec_desc.backend = MKFF_VIDEO_BACKEND_AUTO;
 
         MKFF_VideoDecoder *decoder = NULL;
         result = mkff_video_decoder_create(ctx, &dec_desc, &decoder);

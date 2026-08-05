@@ -15,3 +15,19 @@ set_target_properties(mkff_codec_h264 PROPERTIES
     C_VISIBILITY_PRESET hidden
     POSITION_INDEPENDENT_CODE ON
 )
+
+# Portable HEVC (H.265) Main/Main10 parser: Annex-B split, VPS/SPS/PPS,
+# slice segment headers, short-term RPS, POC. Rejects 4:2:2/4:4:4 and
+# non-8/10-bit depths.
+add_library(mkff_codec_hevc STATIC
+    hevc/hevc_bitstream.c
+    hevc/hevc_vps_sps_pps.c
+    hevc/hevc_slice.c
+)
+
+target_include_directories(mkff_codec_hevc PUBLIC ${PROJECT_SOURCE_DIR})
+
+set_target_properties(mkff_codec_hevc PROPERTIES
+    C_VISIBILITY_PRESET hidden
+    POSITION_INDEPENDENT_CODE ON
+)

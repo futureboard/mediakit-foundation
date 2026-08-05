@@ -1,12 +1,23 @@
 #include "mkff/video_decoder.h"
 
+#include <stddef.h>
 #include <string.h>
 
 #include "context_internal.h"
+#include "software_decoder.h"
 #include "src/common/mkff_common.h"
 
 static const MKFF_HandleCommon *as_common(const void *handle) {
     return (const MKFF_HandleCommon *)handle;
+}
+
+static MKFF_VideoBackend desc_backend(const MKFF_VideoDecoderDesc *desc) {
+    /* Older callers omit backend (struct_size smaller) → AUTO. */
+    const size_t backend_end = offsetof(MKFF_VideoDecoderDesc, backend) + sizeof(desc->backend);
+    if (desc->struct_size < (uint32_t)backend_end) {
+        return MKFF_VIDEO_BACKEND_AUTO;
+    }
+    return desc->backend;
 }
 
 MKFF_Result mkff_video_decoder_create(MKFF_Context *context,
@@ -21,19 +32,50 @@ MKFF_Result mkff_video_decoder_create(MKFF_Context *context,
         return MKFF_RESULT_ERROR_INVALID_ARGUMENT;
     }
 
-    const MKFF_PlatformAPI *api = mkff_context_internal_get_platform_api(context);
-    if (!api) {
-        return MKFF_RESULT_ERROR_PLATFORM_LOAD;
+    MKFF_VideoBackend backend = desc_backend(desc);
+    MKFF_Result hw_result = MKFF_RESULT_ERROR_NOT_SUPPORTED;
+    void *hw_decoder = NULL;
+
+    if (backend != MKFF_VIDEO_BACKEND_SOFTWARE_ONLY) {
+        const MKFF_PlatformAPI *api = mkff_context_internal_get_platform_api(context);
+        if (!api) {
+            hw_result = MKFF_RESULT_ERROR_PLATFORM_LOAD;
+        } else {
+            hw_result = api->video_decoder_create(mkff_context_internal_get_platform_context(context),
+                                                 desc,
+                                                 &hw_decoder);
+            if (hw_result == MKFF_RESULT_OK) {
+                *out_decoder = (MKFF_VideoDecoder *)hw_decoder;
+                return MKFF_RESULT_OK;
+            }
+        }
+        if (backend == MKFF_VIDEO_BACKEND_HARDWARE_ONLY) {
+            return (hw_result == MKFF_RESULT_ERROR_NOT_SUPPORTED)
+                       ? MKFF_RESULT_ERROR_CODEC_UNAVAILABLE
+                       : hw_result;
+        }
+        /* AUTO: fall through to software */
     }
 
-    void *decoder = NULL;
-    MKFF_Result result = api->video_decoder_create(mkff_context_internal_get_platform_context(context), desc, &decoder);
-    if (result != MKFF_RESULT_OK) {
-        return result;
+    if (desc->codec == MKFF_VIDEO_CODEC_HEVC) {
+        MKFF_Result sw = mkff_software_video_decoder_create(desc, out_decoder);
+        if (sw == MKFF_RESULT_OK) {
+            return MKFF_RESULT_OK;
+        }
+        if (backend == MKFF_VIDEO_BACKEND_SOFTWARE_ONLY) {
+            return sw;
+        }
+        /* AUTO and both failed */
+        if (sw == MKFF_RESULT_ERROR_CODEC_UNAVAILABLE) {
+            return MKFF_RESULT_ERROR_CODEC_UNAVAILABLE;
+        }
+        return (hw_result != MKFF_RESULT_OK) ? hw_result : sw;
     }
 
-    *out_decoder = (MKFF_VideoDecoder *)decoder;
-    return MKFF_RESULT_OK;
+    if (backend == MKFF_VIDEO_BACKEND_SOFTWARE_ONLY) {
+        return MKFF_RESULT_ERROR_CODEC_UNAVAILABLE;
+    }
+    return hw_result;
 }
 
 void mkff_video_decoder_destroy(MKFF_VideoDecoder *decoder) {

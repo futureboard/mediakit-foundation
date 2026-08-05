@@ -24,6 +24,31 @@ add_executable(test_h264_sps
 target_include_directories(test_h264_sps PRIVATE ${PROJECT_SOURCE_DIR} ${PROJECT_SOURCE_DIR}/tests)
 add_test(NAME test_h264_sps COMMAND test_h264_sps)
 
+# --- HEVC portable parser tests (GPU-free) ---
+add_executable(test_hevc_bitstream
+    test_hevc_bitstream.c
+    ${PROJECT_SOURCE_DIR}/src/codecs/hevc/hevc_bitstream.c
+)
+target_include_directories(test_hevc_bitstream PRIVATE ${PROJECT_SOURCE_DIR} ${PROJECT_SOURCE_DIR}/tests)
+add_test(NAME test_hevc_bitstream COMMAND test_hevc_bitstream)
+
+add_executable(test_hevc_sps
+    test_hevc_sps.c
+    ${PROJECT_SOURCE_DIR}/src/codecs/hevc/hevc_bitstream.c
+    ${PROJECT_SOURCE_DIR}/src/codecs/hevc/hevc_vps_sps_pps.c
+)
+target_include_directories(test_hevc_sps PRIVATE ${PROJECT_SOURCE_DIR} ${PROJECT_SOURCE_DIR}/tests)
+add_test(NAME test_hevc_sps COMMAND test_hevc_sps)
+
+add_executable(test_hevc_poc
+    test_hevc_poc.c
+    ${PROJECT_SOURCE_DIR}/src/codecs/hevc/hevc_bitstream.c
+    ${PROJECT_SOURCE_DIR}/src/codecs/hevc/hevc_vps_sps_pps.c
+    ${PROJECT_SOURCE_DIR}/src/codecs/hevc/hevc_slice.c
+)
+target_include_directories(test_hevc_poc PRIVATE ${PROJECT_SOURCE_DIR} ${PROJECT_SOURCE_DIR}/tests)
+add_test(NAME test_hevc_poc COMMAND test_hevc_poc)
+
 # --- test_checksum: SIMD dispatch (scalar vs AVX2). AVX2 kernel only
 # exists where a GNU-syntax assembler is available (see root
 # CMakeLists.txt); the scalar path is always exercised regardless. ---
@@ -73,4 +98,30 @@ if(BASH_PROGRAM)
     # failure mode this test rejects.
     add_test(NAME cli_decode_test_smoke
              COMMAND ${BASH_PROGRAM} -c "$<TARGET_FILE:mkff_cli> decode-test ${PROJECT_SOURCE_DIR}/testdata/tiny_baseline_64x64.h264; test $? -le 1")
+    add_test(NAME cli_hevc_decode_test_smoke
+             COMMAND ${BASH_PROGRAM} -c "$<TARGET_FILE:mkff_cli> decode-test ${PROJECT_SOURCE_DIR}/testdata/tiny_main_256x144.hevc --codec hevc --frames 1; test $? -le 1")
+    add_test(NAME cli_codec_info_hevc_smoke
+             COMMAND ${BASH_PROGRAM} -c "$<TARGET_FILE:mkff_cli> codec-info hevc --backend sw; test $? -le 1")
+endif()
+
+# Software HEVC path must produce at least one frame when libhevc is linked.
+# Uses cmake -E env so the test runs on Windows without bash.
+if(MKFF_ENABLE_HEVC_SOFTWARE)
+    add_test(NAME cli_hevc_sw_decode_success
+             COMMAND $<TARGET_FILE:mkff_cli>
+                     decode-test
+                     ${PROJECT_SOURCE_DIR}/testdata/tiny_main_256x144.hevc
+                     --codec hevc
+                     --backend sw
+                     --frames 1)
+    # libhevc is 8-bit only: Main10 SOFTWARE_ONLY must fail cleanly
+    # (CODEC_UNAVAILABLE), not hang or crash. HW Main10 remains supported.
+    add_test(NAME cli_hevc_main10_sw_unavailable
+             COMMAND $<TARGET_FILE:mkff_cli>
+                     decode-test
+                     ${PROJECT_SOURCE_DIR}/testdata/tiny_main10_64x64.hevc
+                     --codec hevc
+                     --backend sw
+                     --frames 1)
+    set_tests_properties(cli_hevc_main10_sw_unavailable PROPERTIES WILL_FAIL TRUE)
 endif()

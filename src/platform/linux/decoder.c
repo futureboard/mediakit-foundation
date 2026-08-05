@@ -1,11 +1,13 @@
 #include "decoder.h"
 
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <va/va.h>
 
+#include "decoder_hevc.h"
 #include "decoder_shared.h"
 #include "drm_device.h"
 #include "h264/h264_dpb.h"
@@ -23,6 +25,7 @@
 
 typedef struct LinuxVideoDecoder {
     MKFF_HandleCommon common; /* must be first */
+    MKFF_VideoCodec   codec;  /* MKFF_VIDEO_CODEC_H264 — shared offset with HEVC decoder */
 
     DecoderShared *shared;
     int            initialized;
@@ -180,7 +183,16 @@ static MKFF_Result ensure_va_initialized(LinuxVideoDecoder *dec, const H264SPS *
     return MKFF_RESULT_OK;
 }
 
+static MKFF_VideoCodec decoder_codec(const void *decoder_v) {
+    /* Both LinuxVideoDecoder and LinuxHevcVideoDecoder store codec immediately
+     * after MKFF_HandleCommon. */
+    return *(const MKFF_VideoCodec *)((const char *)decoder_v + sizeof(MKFF_HandleCommon));
+}
+
 MKFF_Result linux_video_decoder_create(MKFF_PlatformContext *pctx, const MKFF_VideoDecoderDesc *desc, void **out_decoder) {
+    if (desc->codec == MKFF_VIDEO_CODEC_HEVC) {
+        return linux_hevc_video_decoder_create(pctx, desc, out_decoder);
+    }
     if (desc->codec != MKFF_VIDEO_CODEC_H264) {
         return MKFF_RESULT_ERROR_NOT_SUPPORTED;
     }
@@ -191,6 +203,7 @@ MKFF_Result linux_video_decoder_create(MKFF_PlatformContext *pctx, const MKFF_Vi
     }
 
     dec->common.api = mkff_linux_platform_api();
+    dec->codec = MKFF_VIDEO_CODEC_H264;
     dec->log_callback = pctx->log_callback;
     dec->log_user_data = pctx->log_user_data;
     dec->log_min_level = pctx->log_min_level;
@@ -202,8 +215,13 @@ MKFF_Result linux_video_decoder_create(MKFF_PlatformContext *pctx, const MKFF_Vi
 }
 
 void linux_video_decoder_destroy(void *decoder_v) {
+    if (!decoder_v) return;
+    if (decoder_codec(decoder_v) == MKFF_VIDEO_CODEC_HEVC) {
+        linux_hevc_video_decoder_destroy(decoder_v);
+        return;
+    }
+
     LinuxVideoDecoder *dec = (LinuxVideoDecoder *)decoder_v;
-    if (!dec) return;
 
     h264_dpb_reset(&dec->dpb);
     for (uint32_t i = 0; i < dec->ready_count; i++) {
@@ -354,6 +372,10 @@ static void submit_slice(LinuxVideoDecoder *dec, const H264SliceHeader *sh, cons
 }
 
 MKFF_Result linux_video_decoder_submit(void *decoder_v, const uint8_t *annex_b_data, size_t annex_b_size, int64_t pts, int64_t dts) {
+    if (decoder_codec(decoder_v) == MKFF_VIDEO_CODEC_HEVC) {
+        return linux_hevc_video_decoder_submit(decoder_v, annex_b_data, annex_b_size, pts, dts);
+    }
+
     LinuxVideoDecoder *dec = (LinuxVideoDecoder *)decoder_v;
 
     if (annex_b_size == 0) {
@@ -453,7 +475,7 @@ MKFF_Result linux_video_decoder_submit(void *decoder_v, const uint8_t *annex_b_d
                 break;
             }
 
-            pic_frame = linux_video_frame_create(dec->shared, pic_pool_index, pic_surface, dec->display_width, dec->display_height, pts, dts, sh.is_idr);
+            pic_frame = linux_video_frame_create(dec->shared, pic_pool_index, pic_surface, dec->display_width, dec->display_height, pts, dts, sh.is_idr, MKFF_PIXEL_FORMAT_NV12);
             if (!pic_frame) {
                 decoder_shared_pool_release(dec->shared, pic_pool_index);
                 result = MKFF_RESULT_ERROR_OUT_OF_MEMORY;
@@ -496,6 +518,10 @@ MKFF_Result linux_video_decoder_submit(void *decoder_v, const uint8_t *annex_b_d
 }
 
 MKFF_Result linux_video_decoder_receive(void *decoder_v, MKFF_VideoFrame **out_frame) {
+    if (decoder_codec(decoder_v) == MKFF_VIDEO_CODEC_HEVC) {
+        return linux_hevc_video_decoder_receive(decoder_v, out_frame);
+    }
+
     LinuxVideoDecoder *dec = (LinuxVideoDecoder *)decoder_v;
 
     if (dec->ready_count > 0) {
@@ -511,6 +537,10 @@ MKFF_Result linux_video_decoder_receive(void *decoder_v, MKFF_VideoFrame **out_f
 }
 
 MKFF_Result linux_video_decoder_flush(void *decoder_v) {
+    if (decoder_codec(decoder_v) == MKFF_VIDEO_CODEC_HEVC) {
+        return linux_hevc_video_decoder_flush(decoder_v);
+    }
+
     LinuxVideoDecoder *dec = (LinuxVideoDecoder *)decoder_v;
 
     LinuxVideoFrame *f;
@@ -522,6 +552,10 @@ MKFF_Result linux_video_decoder_flush(void *decoder_v) {
 }
 
 MKFF_Result linux_video_decoder_get_info(const void *decoder_v, MKFF_VideoDecoderInfo *out_info) {
+    if (decoder_codec(decoder_v) == MKFF_VIDEO_CODEC_HEVC) {
+        return linux_hevc_video_decoder_get_info(decoder_v, out_info);
+    }
+
     const LinuxVideoDecoder *dec = (const LinuxVideoDecoder *)decoder_v;
 
     uint32_t requested_size = out_info->struct_size;
@@ -544,6 +578,13 @@ MKFF_Result linux_video_decoder_get_info(const void *decoder_v, MKFF_VideoDecode
         pthread_mutex_unlock(&dec->shared->pool_lock);
         out_info->surface_pool_size = in_use;
         out_info->surface_pool_capacity = dec->shared->pool_capacity;
+    }
+
+    if (out_info->struct_size >= offsetof(MKFF_VideoDecoderInfo, hardware) + sizeof(uint32_t)) {
+        out_info->backend = MKFF_VIDEO_BACKEND_HARDWARE_ONLY;
+        out_info->bit_depth = dec->initialized ? 8u : 0u;
+        out_info->chroma_format_idc = dec->initialized ? 1u : 0u;
+        out_info->hardware = dec->initialized ? 1u : 0u;
     }
 
     return MKFF_RESULT_OK;

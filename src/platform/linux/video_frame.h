@@ -29,7 +29,8 @@ LinuxVideoFrame *linux_video_frame_create(DecoderShared *shared,
                                            uint32_t height,
                                            int64_t pts,
                                            int64_t dts,
-                                           int is_key_frame);
+                                           int is_key_frame,
+                                           MKFF_PixelFormat format);
 
 /* These match MKFF_PlatformAPI's video_frame_* signatures exactly and
  * are wired directly into the exported vtable. */

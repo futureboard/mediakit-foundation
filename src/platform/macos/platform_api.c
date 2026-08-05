@@ -55,6 +55,10 @@ static const MKFF_PlatformAPI kMacosPlatformAPI = {
     .video_frame_export_dmabuf = NULL,     /* Linux-only */
     .video_frame_export_iosurface = macos_video_frame_export_iosurface,
     .video_frame_export_d3d11_texture = NULL, /* Windows-only */
+
+    /* Hardware VT path: CPU plane mapping is not provided. */
+    .video_frame_map_cpu_planes = NULL,
+    .video_frame_unmap_cpu_planes = NULL,
 };
 
 const MKFF_PlatformAPI *mkff_macos_platform_api(void) {

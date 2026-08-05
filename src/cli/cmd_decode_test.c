@@ -6,15 +6,31 @@
 
 int cmd_decode_test(int argc, char **argv) {
     if (argc < 2) {
-        fprintf(stderr, "usage: decode-test <input.h264> [--frames N]\n");
+        fprintf(stderr, "usage: decode-test <input> [--codec h264|hevc] [--frames N] [--backend auto|hw|sw]\n");
         return 2;
     }
     const char *input_path = argv[1];
-    long max_frames = -1; /* unlimited */
+    long max_frames = -1;
+    MKFF_VideoCodec codec = MKFF_VIDEO_CODEC_H264;
+    MKFF_VideoBackend backend = MKFF_VIDEO_BACKEND_AUTO;
 
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "--frames") == 0 && i + 1 < argc) {
             max_frames = strtol(argv[++i], NULL, 10);
+        } else if (strcmp(argv[i], "--codec") == 0 && i + 1 < argc) {
+            if (cli_parse_codec_name(argv[++i], &codec) != 0) {
+                fprintf(stderr, "unknown codec (use h264 or hevc)\n");
+                return 2;
+            }
+        } else if (strcmp(argv[i], "--backend") == 0 && i + 1 < argc) {
+            const char *b = argv[++i];
+            if (strcmp(b, "auto") == 0) backend = MKFF_VIDEO_BACKEND_AUTO;
+            else if (strcmp(b, "hw") == 0 || strcmp(b, "hardware") == 0) backend = MKFF_VIDEO_BACKEND_HARDWARE_ONLY;
+            else if (strcmp(b, "sw") == 0 || strcmp(b, "software") == 0) backend = MKFF_VIDEO_BACKEND_SOFTWARE_ONLY;
+            else {
+                fprintf(stderr, "unknown backend (use auto|hw|sw)\n");
+                return 2;
+            }
         }
     }
 
@@ -26,9 +42,11 @@ int cmd_decode_test(int argc, char **argv) {
     }
 
     CliAuRange *aus = (CliAuRange *)malloc(sizeof(CliAuRange) * 65536);
-    size_t au_count = cli_split_access_units(file_data, file_size, aus, 65536);
+    size_t au_count = (codec == MKFF_VIDEO_CODEC_HEVC)
+                          ? cli_split_hevc_access_units(file_data, file_size, aus, 65536)
+                          : cli_split_access_units(file_data, file_size, aus, 65536);
     if (au_count == 0) {
-        fprintf(stderr, "no H.264 access units found in %s\n", input_path);
+        fprintf(stderr, "no %s access units found in %s\n", cli_codec_name(codec), input_path);
         free(aus);
         free(file_data);
         return 1;
@@ -48,19 +66,10 @@ int cmd_decode_test(int argc, char **argv) {
         return 1;
     }
 
-#if defined(MKFF_CLI_HAVE_LINUX_COMMANDS)
-    MKFF_DrmDeviceInfo device;
-    uint32_t device_count = 0;
-    mkff_linux_enumerate_drm_devices(ctx, &device, 1, &device_count);
-
-    MKFF_VaInfo va_info;
-    MKFF_INIT_STRUCT_HEADER(&va_info);
-    mkff_linux_query_va_info(ctx, NULL, &va_info);
-#endif
-
     MKFF_VideoDecoderDesc dec_desc;
     MKFF_INIT_STRUCT_HEADER(&dec_desc);
-    dec_desc.codec = MKFF_VIDEO_CODEC_H264;
+    dec_desc.codec = codec;
+    dec_desc.backend = backend;
 
     MKFF_VideoDecoder *decoder = NULL;
     result = mkff_video_decoder_create(ctx, &dec_desc, &decoder);
@@ -119,21 +128,20 @@ int cmd_decode_test(int argc, char **argv) {
     MKFF_INIT_STRUCT_HEADER(&info);
     mkff_video_decoder_get_info(decoder, &info);
 
-    double elapsed = (start_time >= 0) ? (end_time - start_time) : 0.0;
-    double fps = (elapsed > 0.0) ? (double)decoded_frames / elapsed : 0.0;
-
-#if defined(MKFF_CLI_HAVE_LINUX_COMMANDS)
-    printf("DRM device:        %s\n", device_count > 0 ? device.path : "(none found)");
-    printf("VA vendor:         %s\n", va_info.vendor_string);
-#endif
-    printf("selected profile:  %s\n", cli_profile_name(info.profile));
-    printf("entrypoint:        %s\n", info.entrypoint == MKFF_VIDEO_ENTRYPOINT_VLD ? "VLD" : "unknown");
-    printf("resolution:        %ux%u\n", info.width, info.height);
-    printf("decoded frames:    %llu\n", (unsigned long long)decoded_frames);
-    printf("surface-pool size: %u (capacity %u)\n", info.surface_pool_size, info.surface_pool_capacity);
-    printf("decode FPS:        %.2f\n", fps);
-    printf("output format:     %s\n", cli_pixel_format_name(info.output_format));
-    printf("CPU readback:      false\n");
+    printf("codec=%s backend=%s hardware=%u format=%s %ux%u profile=%s bit_depth=%u frames=%llu",
+           cli_codec_name(codec),
+           cli_backend_name(info.backend),
+           info.hardware,
+           cli_pixel_format_name(info.output_format),
+           info.width,
+           info.height,
+           cli_profile_name(info.profile),
+           info.bit_depth,
+           (unsigned long long)decoded_frames);
+    if (start_time >= 0 && end_time > start_time) {
+        printf(" fps=%.2f", (double)decoded_frames / (end_time - start_time));
+    }
+    printf("\n");
 
     mkff_video_decoder_destroy(decoder);
     mkff_context_destroy(ctx);

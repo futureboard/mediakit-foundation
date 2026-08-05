@@ -116,11 +116,75 @@ void cli_log_callback(void *user_data, MKFF_LogLevel level, const char *componen
     fprintf(stderr, "[%s] %s: %s\n", level_name, component, message);
 }
 
+size_t cli_split_hevc_access_units(const uint8_t *data, size_t size, CliAuRange *out_ranges, size_t capacity) {
+    long first = find_start_code(data, size, 0);
+    if (first < 0) return 0;
+
+    size_t au_start = (size_t)first;
+    int seen_vcl_in_current_au = 0;
+    size_t count = 0;
+
+    size_t pos = (size_t)first + 3;
+    while (pos <= size) {
+        long next = find_start_code(data, size, pos);
+        size_t nal_start = pos;
+        size_t nal_end = (next < 0) ? size : (size_t)next;
+
+        if (nal_end > nal_start + 1) {
+            uint8_t nal_unit_type = (uint8_t)((data[nal_start] >> 1) & 0x3F);
+            int is_vcl = (nal_unit_type <= 9) || (nal_unit_type >= 16 && nal_unit_type <= 21);
+            if (is_vcl) {
+                if (seen_vcl_in_current_au && count < capacity) {
+                    out_ranges[count].offset = au_start;
+                    out_ranges[count].size = nal_start - 3 - au_start;
+                    count++;
+                    au_start = nal_start - 3;
+                }
+                seen_vcl_in_current_au = 1;
+            }
+        }
+
+        if (next < 0) break;
+        pos = (size_t)next + 3;
+    }
+
+    if (au_start < size && count < capacity) {
+        out_ranges[count].offset = au_start;
+        out_ranges[count].size = size - au_start;
+        count++;
+    }
+
+    return count;
+}
+
 const char *cli_pixel_format_name(MKFF_PixelFormat format) {
     switch (format) {
         case MKFF_PIXEL_FORMAT_NV12: return "NV12";
+        case MKFF_PIXEL_FORMAT_P010: return "P010";
         default: return "unknown";
     }
+}
+
+const char *cli_backend_name(MKFF_VideoBackend backend) {
+    switch (backend) {
+        case MKFF_VIDEO_BACKEND_AUTO: return "auto";
+        case MKFF_VIDEO_BACKEND_HARDWARE_ONLY: return "hardware";
+        case MKFF_VIDEO_BACKEND_SOFTWARE_ONLY: return "software";
+        default: return "unknown";
+    }
+}
+
+int cli_parse_codec_name(const char *name, MKFF_VideoCodec *out_codec) {
+    if (!name || !out_codec) return -1;
+    if (strcmp(name, "h264") == 0 || strcmp(name, "avc") == 0) {
+        *out_codec = MKFF_VIDEO_CODEC_H264;
+        return 0;
+    }
+    if (strcmp(name, "hevc") == 0 || strcmp(name, "h265") == 0) {
+        *out_codec = MKFF_VIDEO_CODEC_HEVC;
+        return 0;
+    }
+    return -1;
 }
 
 const char *cli_profile_name(MKFF_VideoProfile profile) {

@@ -1,5 +1,3 @@
-use std::os::fd::{FromRawFd, OwnedFd};
-
 use crate::error::{check, Result};
 
 /// A reference-counted decoded video frame. Cloning bumps the
@@ -37,11 +35,27 @@ impl VideoFrame {
         })
     }
 
+    /// Maps CPU-readable planes for software-decoded frames (NV12 / P010).
+    /// Hardware frames return `NOT_SUPPORTED`.
+    pub fn map_cpu_planes(&self) -> Result<CpuPlanes<'_>> {
+        let mut raw: mkff_sys::MKFF_CpuPlaneDesc = unsafe { std::mem::zeroed() };
+        raw.struct_size = std::mem::size_of::<mkff_sys::MKFF_CpuPlaneDesc>() as u32;
+        raw.abi_version = mkff_sys::MKFF_ABI_VERSION;
+        check(unsafe { mkff_sys::mkff_video_frame_map_cpu_planes(self.ptr, &mut raw) })?;
+        Ok(CpuPlanes { frame: self, raw })
+    }
+
     /// Exports the GPU surface backing this frame as dma-buf objects.
     /// The returned file descriptors are owned by the caller (via
     /// `OwnedFd`, which closes them on drop) and remain valid GPU
     /// buffer references independent of this `VideoFrame`'s lifetime.
+    ///
+    /// Linux only — other platforms expose their own zero-copy export
+    /// paths (D3D11 shared handles, IOSurface) via the C API.
+    #[cfg(target_os = "linux")]
     pub fn export_dmabuf(&self) -> Result<LinuxDmaBuf> {
+        use std::os::fd::{FromRawFd, OwnedFd};
+
         let mut raw: mkff_sys::MKFF_LinuxDmaBufDesc = unsafe { std::mem::zeroed() };
         raw.struct_size = std::mem::size_of::<mkff_sys::MKFF_LinuxDmaBufDesc>() as u32;
         raw.abi_version = mkff_sys::MKFF_ABI_VERSION;
@@ -107,14 +121,55 @@ pub struct FrameInfo {
     pub is_key_frame: bool,
 }
 
+/// Borrowed CPU plane view from [`VideoFrame::map_cpu_planes`].
+/// Unmaps on drop.
+pub struct CpuPlanes<'a> {
+    frame: &'a VideoFrame,
+    raw: mkff_sys::MKFF_CpuPlaneDesc,
+}
+
+impl CpuPlanes<'_> {
+    pub fn format(&self) -> mkff_sys::MKFF_PixelFormat {
+        self.raw.format
+    }
+
+    pub fn width(&self) -> u32 {
+        self.raw.width
+    }
+
+    pub fn height(&self) -> u32 {
+        self.raw.height
+    }
+
+    pub fn plane_count(&self) -> u32 {
+        self.raw.plane_count
+    }
+
+    /// Plane `i` as `(ptr, stride_bytes, height_lines)`.
+    pub fn plane(&self, i: usize) -> Option<(*const u8, u32, u32)> {
+        if i >= self.raw.plane_count as usize {
+            return None;
+        }
+        Some((self.raw.data[i], self.raw.stride[i], self.raw.height_lines[i]))
+    }
+}
+
+impl Drop for CpuPlanes<'_> {
+    fn drop(&mut self) {
+        unsafe { mkff_sys::mkff_video_frame_unmap_cpu_planes(self.frame.ptr, &mut self.raw) };
+    }
+}
+
 /// One dma-buf file descriptor backing (part of) a decoded surface.
 /// Closed automatically when dropped.
+#[cfg(target_os = "linux")]
 pub struct LinuxDmaBufObject {
-    pub fd: OwnedFd,
+    pub fd: std::os::fd::OwnedFd,
     pub size: u32,
     pub modifier: u64,
 }
 
+#[cfg(target_os = "linux")]
 #[derive(Debug, Clone, Copy)]
 pub struct LinuxDmaBufPlane {
     pub object_index: u32,
@@ -122,6 +177,7 @@ pub struct LinuxDmaBufPlane {
     pub pitch: u32,
 }
 
+#[cfg(target_os = "linux")]
 pub struct LinuxDmaBuf {
     pub drm_fourcc: u32,
     pub width: u32,

@@ -49,8 +49,28 @@ int windows_select_h264_decoder_guid(ID3D11VideoDevice *video_device, GUID *out_
     return 0;
 }
 
+int windows_select_hevc_decoder_guid(ID3D11VideoDevice *video_device, uint32_t bit_depth, GUID *out_guid) {
+    const GUID *wanted = (bit_depth == 10) ? &DXVA_ModeHEVC_VLD_Main10 : &DXVA_ModeHEVC_VLD_Main;
+    UINT profile_count = ID3D11VideoDevice_GetVideoDecoderProfileCount(video_device);
+    for (UINT i = 0; i < profile_count; i++) {
+        GUID profile;
+        if (FAILED(ID3D11VideoDevice_GetVideoDecoderProfile(video_device, i, &profile))) {
+            continue;
+        }
+        if (IsEqualGUID(&profile, wanted)) {
+            *out_guid = profile;
+            return 1;
+        }
+    }
+    return 0;
+}
+
 int windows_check_nv12_supported(ID3D11VideoDevice *video_device, const GUID *profile) {
+    return windows_check_decoder_format_supported(video_device, profile, DXGI_FORMAT_NV12);
+}
+
+int windows_check_decoder_format_supported(ID3D11VideoDevice *video_device, const GUID *profile, DXGI_FORMAT format) {
     BOOL supported = FALSE;
-    HRESULT hr = ID3D11VideoDevice_CheckVideoDecoderFormat(video_device, profile, DXGI_FORMAT_NV12, &supported);
+    HRESULT hr = ID3D11VideoDevice_CheckVideoDecoderFormat(video_device, profile, format, &supported);
     return SUCCEEDED(hr) && supported;
 }

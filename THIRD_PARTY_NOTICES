@@ -1,0 +1,25 @@
+# Third-Party Notices
+
+This file lists third-party software that may be incorporated into builds of
+MediaKit Foundation Framework (MKFF).
+
+## libhevc (Ittiam Systems)
+
+- Project: https://github.com/ittiam-systems/libhevc
+- License: Apache License 2.0
+- Used when CMake option `MKFF_ENABLE_HEVC_SOFTWARE` is ON (default), or when
+  the Cargo feature `hevc-software-fallback` is enabled.
+- MKFF fetches a pinned commit via CMake `FetchContent` (or uses a local
+  `third_party/libhevc/` tree if present) and links the decoder-only library
+  into the core `MKFF` library as an in-process software HEVC fallback.
+- Encoder, examples, fuzzers, and upstream unit-test targets are not built
+  into MKFF.
+- The pinned libhevc decoder supports 8-bit Main (NV12). Main10 / 10-bit
+  streams are rejected at the MKFF software wrapper and handled by platform
+  hardware decoders instead.
+
+Apache License 2.0 text: https://www.apache.org/licenses/LICENSE-2.0
+
+Copyright notices and the full Apache-2.0 license text are included in the
+upstream libhevc source tree (`LICENSE` / related notice files) fetched at
+configure time.

@@ -25,9 +25,13 @@ typedef struct MKFF_VideoDecoderDesc {
     uint32_t max_surfaces;
 
     /* Optional dimension hints; 0 defers to the values signalled in-band
-     * (SPS for H.264). */
+     * (SPS for H.264 / HEVC). */
     uint32_t width_hint;
     uint32_t height_hint;
+
+    /* Appended in ABI v1 via struct_size: callers that omit this field
+     * (older sizeof) get AUTO. */
+    MKFF_VideoBackend backend;
 } MKFF_VideoDecoderDesc;
 
 typedef struct MKFF_VideoDecoderInfo {
@@ -40,6 +44,12 @@ typedef struct MKFF_VideoDecoderInfo {
     MKFF_PixelFormat output_format;
     uint32_t surface_pool_size;
     uint32_t surface_pool_capacity;
+
+    /* Appended fields; zeroed for callers with a smaller struct_size. */
+    MKFF_VideoBackend backend;
+    uint32_t bit_depth;          /* 8 or 10 for supported Main/Main10 */
+    uint32_t chroma_format_idc;  /* 1 = 4:2:0 for supported streams */
+    uint32_t hardware;           /* 1 if platform HW path, 0 if software */
 } MKFF_VideoDecoderInfo;
 
 MKFF_API MKFF_Result mkff_video_decoder_create(MKFF_Context *context,

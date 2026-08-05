@@ -10,8 +10,17 @@ typedef struct MKFF_VideoFrame   MKFF_VideoFrame;
 
 typedef enum MKFF_PixelFormat {
     MKFF_PIXEL_FORMAT_UNKNOWN = 0,
-    MKFF_PIXEL_FORMAT_NV12    = 1
+    MKFF_PIXEL_FORMAT_NV12    = 1,
+    MKFF_PIXEL_FORMAT_P010    = 2  /* 10-bit biplanar 4:2:0 (MSB-aligned in 16-bit samples) */
 } MKFF_PixelFormat;
+
+/* Decoder backend preference. Appended to MKFF_VideoDecoderDesc; older
+ * callers with a smaller struct_size default to AUTO. */
+typedef enum MKFF_VideoBackend {
+    MKFF_VIDEO_BACKEND_AUTO           = 0, /* try hardware, then software if built */
+    MKFF_VIDEO_BACKEND_HARDWARE_ONLY  = 1,
+    MKFF_VIDEO_BACKEND_SOFTWARE_ONLY  = 2
+} MKFF_VideoBackend;
 
 typedef enum MKFF_VideoCodec {
     MKFF_VIDEO_CODEC_UNKNOWN = 0,

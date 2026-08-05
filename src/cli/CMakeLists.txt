@@ -3,6 +3,7 @@ set(MKFF_CLI_SOURCES
     cli_common.c
     cmd_decode_test.c
     cmd_benchmark.c
+    cmd_codec_info.c
 )
 
 # devices/va-info/export-test are Linux (VA-API/DRM/dma-buf) specific
@@ -25,4 +26,4 @@ set_target_properties(mkff_cli PROPERTIES OUTPUT_NAME mkff)
 target_include_directories(mkff_cli PRIVATE ${PROJECT_SOURCE_DIR}/include)
 target_link_libraries(mkff_cli PRIVATE mkff)
 
-install(TARGETS mkff_cli RUNTIME DESTINATION bin)
+install(TARGETS mkff_cli RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})

@@ -12,6 +12,7 @@
 
 #include "mkff/abi.h"
 #include "mkff/context.h"
+#include "mkff/cpu_planes.h"
 #include "mkff/error.h"
 #include "mkff/export.h"
 #include "mkff/log.h"

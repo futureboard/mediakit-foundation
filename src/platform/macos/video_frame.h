@@ -28,6 +28,7 @@ MacosVideoFrame *macos_video_frame_create(DecoderShared *shared,
                                            CVPixelBufferRef pixel_buffer,
                                            uint32_t width,
                                            uint32_t height,
+                                           MKFF_PixelFormat format,
                                            int64_t pts,
                                            int64_t dts,
                                            int is_key_frame);

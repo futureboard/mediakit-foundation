@@ -26,9 +26,26 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
 endif()
 
+# Embedding / Cargo-driven builds flip these off so cmake-rs only builds
+# the shared libraries it needs. MKFF_BUILD_RUST_BINDINGS must stay OFF
+# when invoked from mkff-sys/build.rs — otherwise CMake would recurse
+# into Cargo while Cargo is already driving the native build.
+option(MKFF_BUILD_CLI "Build the mkff CLI" ON)
+option(MKFF_BUILD_TESTS "Build the CTest suite" ON)
+option(MKFF_BUILD_RUST_BINDINGS "Build Rust bindings from CMake (never from Cargo)" OFF)
+option(MKFF_BUILD_EXAMPLES "Build example programs" OFF)
+option(MKFF_ENABLE_HEVC "Build portable HEVC parser / enable HEVC decode paths" ON)
+option(MKFF_ENABLE_HEVC_SOFTWARE "FetchContent libhevc software HEVC fallback" ON)
+
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
+# Keep install layout predictable for cmake-rs (and cmake --install):
+#   <prefix>/lib/      shared libraries + import libs
+#   <prefix>/bin/      Windows DLLs + CLI
+#   <prefix>/include/  public headers
+include(GNUInstallDirs)
 
 if(NOT (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
     message(FATAL_ERROR "mkff has platform backends for Linux, macOS (Darwin), and Windows only.")
@@ -57,9 +74,12 @@ if(NOT WIN32)
     add_compile_definitions(_GNU_SOURCE)
 endif()
 
-enable_testing()
-
 add_subdirectory(src/codecs)
+
+if(MKFF_ENABLE_HEVC_SOFTWARE)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/MkffLibhevc.cmake)
+endif()
+
 add_subdirectory(src/core)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -70,7 +90,27 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     add_subdirectory(src/platform/windows)
 endif()
 
-add_subdirectory(src/cli)
-add_subdirectory(tests)
+if(MKFF_BUILD_CLI)
+    add_subdirectory(src/cli)
+endif()
 
-install(DIRECTORY include/mkff DESTINATION include)
+if(MKFF_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
+
+if(MKFF_BUILD_EXAMPLES)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/examples/CMakeLists.txt")
+        add_subdirectory(examples)
+    endif()
+endif()
+
+if(MKFF_BUILD_RUST_BINDINGS)
+    message(FATAL_ERROR
+        "MKFF_BUILD_RUST_BINDINGS is not implemented as a CMake-driven build. "
+        "Build the Rust crates with Cargo (bundled native build is the default). "
+        "When Cargo invokes this CMake project via mkff-sys, leave "
+        "MKFF_BUILD_RUST_BINDINGS=OFF to avoid Cargo/CMake recursion.")
+endif()
+
+install(DIRECTORY include/mkff DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
