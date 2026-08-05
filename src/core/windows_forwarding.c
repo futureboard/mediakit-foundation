@@ -1,6 +1,15 @@
 #include "mkff/windows/d3d11.h"
 
 #include <string.h>
+
+/* COBJMACROS must be defined before <unknwn.h>/<windows.h> for the
+ * IUnknown_Release(instance) convenience macro used below (otherwise
+ * MSVC treats it as an implicitly-declared int-returning function --
+ * see src/platform/windows/win_common.h, which this file deliberately
+ * doesn't include: it only needs IUnknown + HANDLE, not the whole
+ * D3D11/DXVA header stack). */
+#define WIN32_LEAN_AND_MEAN
+#define COBJMACROS
 #include <unknwn.h>
 #include <windows.h>
 

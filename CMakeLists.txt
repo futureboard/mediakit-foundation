@@ -44,6 +44,11 @@ endif()
 
 if(MSVC)
     add_compile_options(/W4)
+    # <stdatomic.h> (used by the Windows/macOS DecoderShared refcounts)
+    # is only usable under MSVC with C11 atomics explicitly opted into
+    # -- without this flag, vcruntime_c11_stdatomic.h itself fails to
+    # compile with "C atomic support is not enabled".
+    add_compile_options(/experimental:c11atomics)
 else()
     add_compile_options(-Wall -Wextra)
 endif()
