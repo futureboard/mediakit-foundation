@@ -1,10 +1,16 @@
-//! Helpers for uploading MKFF software-decoded NV12 frames into wgpu textures.
+//! Helpers for uploading MKFF-decoded NV12 frames into wgpu textures.
 //!
 //! Hardware zero-copy into wgpu (dma-buf / D3D11 shared handle / IOSurface) is
 //! not stable across wgpu backends yet. This crate uses the portable path:
 //! [`mkff::VideoFrame::map_cpu_planes`] → R8 + RG8 textures → YUV→RGB shader.
+//!
+//! Input: raw Annex-B (`.hevc` / `.h264`) or progressive MP4/MOV (`.mp4` /
+//! `.mov` / `ftyp`) via [`mkff::Mp4Demux`].
 
-use mkff::{Context, CpuPlanes, PixelFormat, ReceiveOutcome, VideoBackend};
+use mkff::{
+    Context, CpuPlanes, Mp4Demux, PixelFormat, ReadAuOutcome, ReceiveOutcome, VideoBackend,
+    VideoCodec, VideoDecoder,
+};
 
 #[derive(Debug)]
 pub enum UploadError {
@@ -187,6 +193,30 @@ pub fn upload_nv12(
 
 /// Byte ranges of HEVC access units in an Annex-B bitstream (VCL-boundary split).
 pub fn split_hevc_access_units(data: &[u8]) -> Vec<std::ops::Range<usize>> {
+    split_annex_b_access_units(data, |nal| {
+        if nal.len() < 2 {
+            return false;
+        }
+        let nal_unit_type = (nal[0] >> 1) & 0x3F;
+        nal_unit_type <= 9 || (16..=21).contains(&nal_unit_type)
+    })
+}
+
+/// Byte ranges of H.264 access units in an Annex-B bitstream (VCL-boundary split).
+pub fn split_h264_access_units(data: &[u8]) -> Vec<std::ops::Range<usize>> {
+    split_annex_b_access_units(data, |nal| {
+        if nal.is_empty() {
+            return false;
+        }
+        let nal_unit_type = nal[0] & 0x1F;
+        (1..=5).contains(&nal_unit_type)
+    })
+}
+
+fn split_annex_b_access_units(
+    data: &[u8],
+    is_vcl: impl Fn(&[u8]) -> bool,
+) -> Vec<std::ops::Range<usize>> {
     let Some(first) = find_start_code(data, 0) else {
         return Vec::new();
     };
@@ -201,19 +231,15 @@ pub fn split_hevc_access_units(data: &[u8]) -> Vec<std::ops::Range<usize>> {
         let nal_start = pos;
         let nal_end = next.unwrap_or(data.len());
 
-        if nal_end > nal_start + 1 {
-            let nal_unit_type = (data[nal_start] >> 1) & 0x3F;
-            let is_vcl = nal_unit_type <= 9 || (16..=21).contains(&nal_unit_type);
-            if is_vcl {
-                if seen_vcl {
-                    let end = nal_start.saturating_sub(3);
-                    if end > au_start {
-                        ranges.push(au_start..end);
-                    }
-                    au_start = end;
+        if nal_end > nal_start && is_vcl(&data[nal_start..nal_end]) {
+            if seen_vcl {
+                let end = nal_start.saturating_sub(3);
+                if end > au_start {
+                    ranges.push(au_start..end);
                 }
-                seen_vcl = true;
+                au_start = end;
             }
+            seen_vcl = true;
         }
 
         match next {
@@ -241,46 +267,124 @@ fn find_start_code(data: &[u8], from: usize) -> Option<usize> {
     None
 }
 
-/// Software-decode every access unit in an HEVC Main Annex-B file to NV12.
-pub fn decode_hevc_software_file(path: &std::path::Path) -> Result<Vec<Nv12Host>, String> {
-    if let Some(msg) = reject_container_path(path) {
+/// Decode a media file: progressive MP4/MOV or Annex-B `.hevc` / `.h264`.
+pub fn decode_video_file(path: &std::path::Path) -> Result<Vec<Nv12Host>, String> {
+    if let Some(msg) = reject_unsupported_container_path(path) {
         return Err(msg);
     }
     let bytes = std::fs::read(path).map_err(|e| format!("read: {e}"))?;
-    if looks_like_isom_container(&bytes) {
-        return Err(
-            "this looks like an MP4/ISOBMFF file; MKFF has no demuxer — \
-             pass a raw HEVC Annex-B elementary stream (.hevc / .h265)"
-                .into(),
-        );
-    }
-    decode_hevc_software_bytes(&bytes)
+    decode_video_bytes(path, &bytes)
+}
+
+/// Legacy name: HEVC Annex-B software decode (still rejects unsupported containers).
+pub fn decode_hevc_software_file(path: &std::path::Path) -> Result<Vec<Nv12Host>, String> {
+    decode_video_file(path)
 }
 
 pub fn decode_hevc_software_bytes(bytes: &[u8]) -> Result<Vec<Nv12Host>, String> {
-    let aus = split_hevc_access_units(bytes);
-    if aus.is_empty() {
-        return Err(
-            "no HEVC Annex-B access units found (need start codes 00 00 01 / \
-             00 00 00 01; containers like MP4 are not supported)"
+    decode_annex_b_bytes(
+        bytes,
+        VideoCodec::MKFF_VIDEO_CODEC_HEVC,
+        VideoBackend::MKFF_VIDEO_BACKEND_SOFTWARE_ONLY,
+        split_hevc_access_units,
+        "HEVC Main (8-bit) Annex-B",
+    )
+}
+
+fn decode_video_bytes(path: &std::path::Path, bytes: &[u8]) -> Result<Vec<Nv12Host>, String> {
+    let ext = path_ext(path);
+    if looks_like_isom_container(bytes) || matches!(ext.as_str(), "mp4" | "m4v" | "mov") {
+        return decode_mp4_bytes(bytes);
+    }
+    match ext.as_str() {
+        "h264" | "264" | "avc" => decode_h264_annex_b_bytes(bytes),
+        "hevc" | "h265" | "265" => decode_hevc_software_bytes(bytes),
+        _ if looks_like_hevc_annex_b(bytes) => decode_hevc_software_bytes(bytes),
+        _ if looks_like_h264_annex_b(bytes) => decode_h264_annex_b_bytes(bytes),
+        _ => Err(
+            "unrecognized input — use Annex-B (.hevc / .h264) or progressive MP4/MOV (.mp4 / .mov)"
                 .into(),
-        );
+        ),
+    }
+}
+
+fn decode_mp4_bytes(bytes: &[u8]) -> Result<Vec<Nv12Host>, String> {
+    let mut demux = Mp4Demux::open_memory(bytes).map_err(|e| format!("mp4 demux open: {e}"))?;
+    let track = demux.video_track().map_err(|e| format!("mp4 video track: {e}"))?;
+    if track.sample_count == 0 {
+        return Err("MP4 video track has no samples".into());
+    }
+
+    let codec = track.codec;
+    if !matches!(
+        codec,
+        VideoCodec::MKFF_VIDEO_CODEC_H264 | VideoCodec::MKFF_VIDEO_CODEC_HEVC
+    ) {
+        return Err(format!("unsupported MP4 video codec: {codec:?}"));
     }
 
     let ctx = Context::new().map_err(|e| format!("context: {e}"))?;
     let mut decoder = ctx
-        .video_decoder_hevc_with_backend(8, VideoBackend::MKFF_VIDEO_BACKEND_SOFTWARE_ONLY)
-        .map_err(|e| format!("decoder create (software): {e}"))?;
+        .video_decoder(codec, 8, VideoBackend::MKFF_VIDEO_BACKEND_AUTO)
+        .map_err(|e| format!("decoder create (AUTO, {codec:?}): {e}"))?;
+
+    let mut frames = Vec::new();
+    loop {
+        match demux.read_access_unit().map_err(|e| format!("read AU: {e}"))? {
+            ReadAuOutcome::EndOfStream => break,
+            ReadAuOutcome::Au(au) => {
+                let i = au.sample_index;
+                decoder
+                    .submit(au.data, Some(au.pts), Some(au.dts))
+                    .map_err(|e| format!("submit sample {i}: {e}"))?;
+                drain_frames(&mut decoder, &mut frames)?;
+            }
+        }
+    }
+    decoder.flush().map_err(|e| format!("flush: {e}"))?;
+    drain_frames(&mut decoder, &mut frames)?;
+
+    if frames.is_empty() {
+        return Err("no frames produced from MP4".into());
+    }
+    Ok(frames)
+}
+
+fn decode_h264_annex_b_bytes(bytes: &[u8]) -> Result<Vec<Nv12Host>, String> {
+    decode_annex_b_bytes(
+        bytes,
+        VideoCodec::MKFF_VIDEO_CODEC_H264,
+        VideoBackend::MKFF_VIDEO_BACKEND_AUTO,
+        split_h264_access_units,
+        "H.264 Annex-B (hardware AUTO)",
+    )
+}
+
+fn decode_annex_b_bytes(
+    bytes: &[u8],
+    codec: VideoCodec,
+    backend: VideoBackend,
+    split: fn(&[u8]) -> Vec<std::ops::Range<usize>>,
+    label: &str,
+) -> Result<Vec<Nv12Host>, String> {
+    let aus = split(bytes);
+    if aus.is_empty() {
+        return Err(format!(
+            "no {label} access units found (need start codes 00 00 01 / 00 00 00 01)"
+        ));
+    }
+
+    let ctx = Context::new().map_err(|e| format!("context: {e}"))?;
+    let mut decoder = ctx
+        .video_decoder(codec, 8, backend)
+        .map_err(|e| format!("decoder create ({label}): {e}"))?;
 
     let mut frames = Vec::new();
     for (i, range) in aus.iter().enumerate() {
         let au = &bytes[range.clone()];
-        decoder.submit(au, Some(i as i64), Some(i as i64)).map_err(|e| {
-            format!(
-                "submit AU {i}: {e} — software path is HEVC Main (8-bit) Annex-B only \
-                 (no MP4; Main10 needs hardware)"
-            )
-        })?;
+        decoder
+            .submit(au, Some(i as i64), Some(i as i64))
+            .map_err(|e| format!("submit AU {i}: {e} — {label}"))?;
         drain_frames(&mut decoder, &mut frames)?;
     }
     decoder.flush().map_err(|e| format!("flush: {e}"))?;
@@ -292,19 +396,20 @@ pub fn decode_hevc_software_bytes(bytes: &[u8]) -> Result<Vec<Nv12Host>, String>
     Ok(frames)
 }
 
-fn reject_container_path(path: &std::path::Path) -> Option<String> {
-    let ext = path
-        .extension()
+fn path_ext(path: &std::path::Path) -> String {
+    path.extension()
         .and_then(|e| e.to_str())
         .unwrap_or("")
-        .to_ascii_lowercase();
+        .to_ascii_lowercase()
+}
+
+fn reject_unsupported_container_path(path: &std::path::Path) -> Option<String> {
+    let ext = path_ext(path);
     match ext.as_str() {
-        "mp4" | "m4v" | "mov" | "mkv" | "webm" | "avi" | "ts" | "m2ts" | "mpeg" | "mpg" => {
-            Some(format!(
-                ".{ext} is a container; MKFF has no demuxer — use raw HEVC Annex-B (.hevc / .h265), \
-                 e.g. testdata/tiny_main_p_256x144.hevc"
-            ))
-        }
+        "mkv" | "webm" | "avi" | "ts" | "m2ts" | "mpeg" | "mpg" | "flv" => Some(format!(
+            ".{ext} is not supported — use progressive MP4/MOV (.mp4 / .mov) or \
+             raw Annex-B (.hevc / .h264)"
+        )),
         _ => None,
     }
 }
@@ -314,8 +419,16 @@ fn looks_like_isom_container(bytes: &[u8]) -> bool {
     bytes.len() >= 8 && &bytes[4..8] == b"ftyp"
 }
 
+fn looks_like_hevc_annex_b(bytes: &[u8]) -> bool {
+    !split_hevc_access_units(bytes).is_empty()
+}
+
+fn looks_like_h264_annex_b(bytes: &[u8]) -> bool {
+    !split_h264_access_units(bytes).is_empty()
+}
+
 fn drain_frames(
-    decoder: &mut mkff::VideoDecoder<'_>,
+    decoder: &mut VideoDecoder<'_>,
     frames: &mut Vec<Nv12Host>,
 ) -> Result<(), String> {
     loop {

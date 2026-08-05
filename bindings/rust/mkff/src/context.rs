@@ -41,8 +41,7 @@ impl Context {
     }
 
     pub fn video_decoder_h264(&self, max_surfaces: u32) -> Result<VideoDecoder<'_>> {
-        VideoDecoder::create(
-            self,
+        self.video_decoder(
             mkff_sys::MKFF_VideoCodec::MKFF_VIDEO_CODEC_H264,
             max_surfaces,
             mkff_sys::MKFF_VideoBackend::MKFF_VIDEO_BACKEND_AUTO,
@@ -50,8 +49,7 @@ impl Context {
     }
 
     pub fn video_decoder_hevc(&self, max_surfaces: u32) -> Result<VideoDecoder<'_>> {
-        VideoDecoder::create(
-            self,
+        self.video_decoder(
             mkff_sys::MKFF_VideoCodec::MKFF_VIDEO_CODEC_HEVC,
             max_surfaces,
             mkff_sys::MKFF_VideoBackend::MKFF_VIDEO_BACKEND_AUTO,
@@ -63,12 +61,21 @@ impl Context {
         max_surfaces: u32,
         backend: mkff_sys::MKFF_VideoBackend,
     ) -> Result<VideoDecoder<'_>> {
-        VideoDecoder::create(
-            self,
+        self.video_decoder(
             mkff_sys::MKFF_VideoCodec::MKFF_VIDEO_CODEC_HEVC,
             max_surfaces,
             backend,
         )
+    }
+
+    /// Creates a decoder for `codec` with the given backend selection.
+    pub fn video_decoder(
+        &self,
+        codec: mkff_sys::MKFF_VideoCodec,
+        max_surfaces: u32,
+        backend: mkff_sys::MKFF_VideoBackend,
+    ) -> Result<VideoDecoder<'_>> {
+        VideoDecoder::create(self, codec, max_surfaces, backend)
     }
 
     #[cfg(target_os = "linux")]

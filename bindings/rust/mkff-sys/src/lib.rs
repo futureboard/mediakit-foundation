@@ -31,6 +31,10 @@ pub struct MKFF_VideoDecoder {
 pub struct MKFF_VideoFrame {
     _opaque: [u8; 0],
 }
+#[repr(C)]
+pub struct MKFF_Mp4Demux {
+    _opaque: [u8; 0],
+}
 
 // ---------------------------------------------------------------------
 // Enums (mkff/types.h, mkff/error.h, mkff/log.h)
@@ -190,6 +194,34 @@ pub const MKFF_CPU_PLANES_MAX: usize = 4;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
+pub struct MKFF_Mp4VideoTrackInfo {
+    pub struct_size: u32,
+    pub abi_version: u32,
+    pub reserved: [u32; 4],
+    pub codec: MKFF_VideoCodec,
+    pub width: u32,
+    pub height: u32,
+    pub timescale: u32,
+    pub duration: u64,
+    pub sample_count: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct MKFF_Mp4AccessUnit {
+    pub struct_size: u32,
+    pub abi_version: u32,
+    pub reserved: [u32; 4],
+    pub data: *const u8,
+    pub size: usize,
+    pub pts: i64,
+    pub dts: i64,
+    pub sync: u32,
+    pub sample_index: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
 pub struct MKFF_CpuPlaneDesc {
     pub struct_size: u32,
     pub abi_version: u32,
@@ -312,6 +344,23 @@ extern "C" {
         out_planes: *mut MKFF_CpuPlaneDesc,
     ) -> MKFF_Result;
     pub fn mkff_video_frame_unmap_cpu_planes(frame: *const MKFF_VideoFrame, planes: *mut MKFF_CpuPlaneDesc);
+
+    pub fn mkff_mp4_demux_open_path(path: *const c_char, out_demux: *mut *mut MKFF_Mp4Demux) -> MKFF_Result;
+    pub fn mkff_mp4_demux_open_memory(
+        data: *const u8,
+        size: usize,
+        out_demux: *mut *mut MKFF_Mp4Demux,
+    ) -> MKFF_Result;
+    pub fn mkff_mp4_demux_destroy(demux: *mut MKFF_Mp4Demux);
+    pub fn mkff_mp4_demux_get_video_track(
+        demux: *const MKFF_Mp4Demux,
+        out_info: *mut MKFF_Mp4VideoTrackInfo,
+    ) -> MKFF_Result;
+    pub fn mkff_mp4_demux_read_access_unit(
+        demux: *mut MKFF_Mp4Demux,
+        out_au: *mut MKFF_Mp4AccessUnit,
+    ) -> MKFF_Result;
+    pub fn mkff_mp4_demux_seek_sample(demux: *mut MKFF_Mp4Demux, sample_index: u32) -> MKFF_Result;
 }
 
 #[cfg(target_os = "linux")]

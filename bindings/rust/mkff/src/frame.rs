@@ -35,8 +35,8 @@ impl VideoFrame {
         })
     }
 
-    /// Maps CPU-readable planes for software-decoded frames (NV12 / P010).
-    /// Hardware frames return `NOT_SUPPORTED`.
+    /// Maps CPU-readable planes (NV12 / P010). Works for software frames and
+    /// for hardware frames when the platform implements CPU readback.
     pub fn map_cpu_planes(&self) -> Result<CpuPlanes<'_>> {
         let mut raw: mkff_sys::MKFF_CpuPlaneDesc = unsafe { std::mem::zeroed() };
         raw.struct_size = std::mem::size_of::<mkff_sys::MKFF_CpuPlaneDesc>() as u32;

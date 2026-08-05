@@ -7,6 +7,7 @@
 typedef struct MKFF_Context      MKFF_Context;
 typedef struct MKFF_VideoDecoder MKFF_VideoDecoder;
 typedef struct MKFF_VideoFrame   MKFF_VideoFrame;
+typedef struct MKFF_Mp4Demux     MKFF_Mp4Demux;
 
 typedef enum MKFF_PixelFormat {
     MKFF_PIXEL_FORMAT_UNKNOWN = 0,

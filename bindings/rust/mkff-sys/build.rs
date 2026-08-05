@@ -71,6 +71,7 @@ fn emit_rerun_directives(repo_root: &Path) {
         "src/common",
         "src/core",
         "src/codecs",
+        "src/demux",
         "src/platform",
         "src/cli/CMakeLists.txt",
         "tests/CMakeLists.txt",

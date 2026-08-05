@@ -11,9 +11,6 @@
 
 MKFF_BEGIN_DECLS
 
-/* Opaque progressive (non-fragmented) MP4/MOV demuxer. */
-typedef struct MKFF_Mp4Demux MKFF_Mp4Demux;
-
 /*
  * First video track summary. Times are in the track timescale
  * (duration / timescale = seconds). sample_count is the number of
