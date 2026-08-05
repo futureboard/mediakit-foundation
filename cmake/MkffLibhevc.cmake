@@ -60,6 +60,17 @@ if(MSVC)
 endif()
 
 if(TARGET libhevcdec)
+    # Repo-wide CMAKE_C_EXTENSIONS is OFF (strict C11). libhevc's platform
+    # macros use the GNU `asm` keyword (NOP loops, etc.), which Clang only
+    # accepts with extensions enabled — otherwise CI fails with
+    # "call to undeclared function 'asm'".
+    set_target_properties(libhevcdec PROPERTIES
+        C_STANDARD 99
+        C_EXTENSIONS ON
+        POSITION_INDEPENDENT_CODE ON
+        C_VISIBILITY_PRESET hidden
+    )
+
     if(MSVC)
         set_property(TARGET libhevcdec PROPERTY COMPILE_OPTIONS "")
         target_compile_options(libhevcdec PRIVATE /W0 /wd4018 /wd4244 /wd4267 /wd4146 /wd4305 /wd4311)
@@ -70,19 +81,45 @@ if(TARGET libhevcdec)
             ENABLE_MAIN_REXT_PROFILE
             _CRT_SECURE_NO_WARNINGS
         )
+        find_package(Threads REQUIRED)
         target_link_libraries(libhevcdec PUBLIC Threads::Threads)
     else()
         target_compile_definitions(libhevcdec PRIVATE ENABLE_MAIN_REXT_PROFILE)
         if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+            # libhevc arm64/arm .s files use ELF-only directives
+            # (.type, .note.gnu.property) that Apple's Mach-O assembler
+            # rejects. Drop assembly + ELF-specific selectors; keep NEON
+            # intrinsics (.c) and the always-present generic C selectors.
+            get_target_property(_mkff_hevc_srcs libhevcdec SOURCES)
+            set(_mkff_hevc_filtered "")
+            foreach(_src IN LISTS _mkff_hevc_srcs)
+                if(_src MATCHES "\\.(s|S)$")
+                    continue()
+                endif()
+                if(_src MATCHES "ihevc_function_selector_av8\\.c$"
+                   OR _src MATCHES "ihevc_function_selector_a9q\\.c$"
+                   OR _src MATCHES "ihevcd_function_selector_av8\\.c$"
+                   OR _src MATCHES "ihevcd_function_selector_a9q\\.c$"
+                   OR _src MATCHES "decoder/arm/ihevcd_function_selector\\.c$")
+                    continue()
+                endif()
+                list(APPEND _mkff_hevc_filtered "${_src}")
+            endforeach()
+            set_property(TARGET libhevcdec PROPERTY SOURCES ${_mkff_hevc_filtered})
+
             if(SYSTEM_PROCESSOR STREQUAL "aarch64")
-                target_compile_definitions(libhevcdec PRIVATE ARMV8 DARWIN DEFAULT_ARCH=D_ARCH_ARMV8_GENERIC)
+                target_compile_definitions(libhevcdec PRIVATE
+                    ARMV8 DARWIN DEFAULT_ARCH=D_ARCH_ARMV8_GENERIC)
             else()
-                target_compile_definitions(libhevcdec PRIVATE X86 DARWIN DISABLE_AVX2 DEFAULT_ARCH=D_ARCH_X86_GENERIC)
+                target_compile_definitions(libhevcdec PRIVATE
+                    X86 DARWIN DISABLE_AVX2 DEFAULT_ARCH=D_ARCH_X86_GENERIC)
             endif()
         elseif(SYSTEM_PROCESSOR STREQUAL "aarch64")
-            target_compile_definitions(libhevcdec PRIVATE ARMV8 DEFAULT_ARCH=D_ARCH_ARMV8_GENERIC ENABLE_NEON)
+            target_compile_definitions(libhevcdec PRIVATE
+                ARMV8 DEFAULT_ARCH=D_ARCH_ARMV8_GENERIC ENABLE_NEON)
         else()
-            target_compile_definitions(libhevcdec PRIVATE X86 X86_LINUX=1 DISABLE_AVX2 DEFAULT_ARCH=D_ARCH_X86_SSE42)
+            target_compile_definitions(libhevcdec PRIVATE
+                X86 X86_LINUX=1 DISABLE_AVX2 DEFAULT_ARCH=D_ARCH_X86_SSE42)
             target_compile_options(libhevcdec PRIVATE -msse4.2 -mno-avx)
         endif()
         find_package(Threads REQUIRED)
@@ -101,16 +138,12 @@ if(TARGET libhevcdec)
             ${HEVC_ROOT}/common/x86
             ${HEVC_ROOT}/decoder/x86
         )
+    elseif(SYSTEM_PROCESSOR STREQUAL "aarch64")
+        target_include_directories(libhevcdec PUBLIC
+            ${HEVC_ROOT}/common/arm
+            ${HEVC_ROOT}/common/arm64
+            ${HEVC_ROOT}/decoder/arm
+            ${HEVC_ROOT}/decoder/arm64
+        )
     endif()
-
-    if(NOT MSVC)
-        # already found above
-    else()
-        find_package(Threads REQUIRED)
-    endif()
-
-    set_target_properties(libhevcdec PROPERTIES
-        POSITION_INDEPENDENT_CODE ON
-        C_VISIBILITY_PRESET hidden
-    )
 endif()
