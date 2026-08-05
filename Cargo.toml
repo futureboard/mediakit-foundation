@@ -4,9 +4,10 @@ members = [
     "bindings/rust/mkff-sys",
     "bindings/rust/mkff",
     "bindings/rust/mkff-vk",
+    "bindings/rust/mkff-wgpu",
 ]
-# mkff-vk is Linux/Vulkan-only; keep it out of the default set so
-# `cargo test` on Windows/macOS builds the portable crates.
+# mkff-vk is Linux/Vulkan-only; mkff-wgpu is a display example.
+# Keep both out of the default set so `cargo test` stays portable.
 default-members = [
     "bindings/rust/mkff-sys",
     "bindings/rust/mkff",

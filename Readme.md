@@ -1,3 +1,15 @@
+<p align="center">
+  <img src="assets/banner.png" alt="MediaKit Foundation" width="720">
+</p>
+
+<p align="center">
+  <a href="https://github.com/futureboard/mediakit-foundation/actions/workflows/build.yml"><img src="https://github.com/futureboard/mediakit-foundation/actions/workflows/build.yml/badge.svg" alt="build"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="license"></a>
+  <img src="https://img.shields.io/badge/platforms-Linux%20%7C%20Windows%20%7C%20macOS-lightgrey.svg" alt="platforms">
+  <img src="https://img.shields.io/badge/C-11-00599C.svg" alt="C11">
+  <img src="https://img.shields.io/badge/Rust-bindings-orange.svg" alt="Rust">
+</p>
+
 # MediaKit Foundation Framework (MKFF)
 
 Cross-Platform Media Engine, Inspired by BeOS.
@@ -7,8 +19,8 @@ Cross-Platform Media Engine, Inspired by BeOS.
 > an optional Apache-2.0 libhevc software fallback for HEVC. No MP4
 > demuxing, audio, rendering, or playback UI yet.
 >
-> **CI status:** [`.github/workflows/build.yml`](.github/workflows/build.yml)
-> builds and runs the full CTest suite on all three platforms
+> [`.github/workflows/build.yml`](.github/workflows/build.yml) builds and
+> runs the full CTest suite on all three platforms
 > (`ubuntu-latest`/`macos-latest`/`windows-latest`) on every push.
 > CI runners typically have no GPU HEVC, so hardware decode fails
 > cleanly; with `MKFF_ENABLE_HEVC_SOFTWARE` (default ON) the software
@@ -54,6 +66,7 @@ src/cli/                 mkff CLI
 bindings/rust/mkff-sys   raw FFI
 bindings/rust/mkff       safe RAII wrapper
 bindings/rust/mkff-vk    dma-buf -> VkImage (Linux)
+bindings/rust/mkff-wgpu  HEVC SW decode → NV12 → wgpu viewer
 tests/                   CTest suite
 testdata/                tiny Annex-B H.264 / HEVC fixtures
 ```
@@ -158,6 +171,19 @@ Rejected: 4:2:2 / 4:4:4, non-8/10 bit depth, tiles/WPP on HW paths this mileston
 
 Linux dma-buf → `VkImage` via `VK_EXT_image_drm_format_modifier`. NV12
 today; P010 drm fourcc is exported when Main10 surfaces are available.
+
+## WGPU viewer (`mkff-wgpu`)
+
+Portable demo: software-decode HEVC Main → `map_cpu_planes` (NV12) →
+upload Y/UV as R8 + RG8 textures → YUV→RGB WGSL pass in a winit window.
+
+```sh
+cargo run -p mkff-wgpu --example view
+cargo run -p mkff-wgpu --example view -- path/to/clip.hevc
+```
+
+Uses `SOFTWARE_ONLY` + libhevc (8-bit Main). Hardware zero-copy into wgpu
+is not wired yet. Needs a GPU/display; not part of default CI.
 
 ## Non-goals (this milestone)
 
