@@ -1,10 +1,9 @@
 #ifndef MKFF_WINDOWS_H264_DXVA_DPB_H
 #define MKFF_WINDOWS_H264_DXVA_DPB_H
 
-#include <dxva.h>
 #include <stdint.h>
 
-#include "video_frame.h"
+#include "video_frame.h" /* pulls in win_common.h (and, transitively, <dxva.h>) in the right order */
 
 #define H264_DXVA_DPB_MAX_ENTRIES 16
 #define H264_DXVA_OUTPUT_QUEUE_MAX 17
