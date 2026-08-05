@@ -1,11 +1,18 @@
 cmake_minimum_required(VERSION 3.20)
 
-# GNU-syntax (AT&T) assembly (src/core/simd/checksum_avx2.S) only
-# assembles with GCC/Clang's integrated assembler; MSVC would need a
-# MASM translation, which doesn't exist yet, so the ASM language is
-# only enabled where it's actually usable. checksum.c falls back to the
-# always-correct scalar path wherever MKFF_NO_AVX2_ASM is defined.
-if(WIN32)
+# GNU-syntax (AT&T) assembly (src/core/simd/checksum_avx2.S) uses ELF-only
+# GAS directives (.type/.size/.note.GNU-stack) and assumes no C-symbol
+# underscore prefix, so it's only ever compiled on Linux (see the
+# CMAKE_SYSTEM_NAME check below) — MSVC has no GNU-syntax assembler at
+# all, and macOS's Mach-O assembler rejects those ELF directives.
+# checksum.c falls back to the always-correct scalar path wherever
+# MKFF_NO_AVX2_ASM is defined.
+#
+# WIN32/APPLE/UNIX aren't set until project()/enable_language() has run
+# at least once, so the *host* equivalents (CMAKE_HOST_WIN32) are used
+# here to decide which languages to enable in the very first project()
+# call.
+if(CMAKE_HOST_WIN32)
     project(mkff VERSION 0.1.0 DESCRIPTION "MediaKit Foundation Framework" LANGUAGES C)
 else()
     project(mkff VERSION 0.1.0 DESCRIPTION "MediaKit Foundation Framework" LANGUAGES C ASM)

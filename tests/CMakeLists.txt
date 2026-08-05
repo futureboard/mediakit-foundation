@@ -32,11 +32,11 @@ set(MKFF_TEST_CHECKSUM_SOURCES
     ${PROJECT_SOURCE_DIR}/src/core/simd/checksum.c
     ${PROJECT_SOURCE_DIR}/src/core/cpu_features.c
 )
-if(NOT WIN32)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     list(APPEND MKFF_TEST_CHECKSUM_SOURCES ${PROJECT_SOURCE_DIR}/src/core/simd/checksum_avx2.S)
 endif()
 add_executable(test_checksum ${MKFF_TEST_CHECKSUM_SOURCES})
-if(WIN32)
+if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_compile_definitions(test_checksum PRIVATE MKFF_NO_AVX2_ASM)
 endif()
 target_include_directories(test_checksum PRIVATE ${PROJECT_SOURCE_DIR})

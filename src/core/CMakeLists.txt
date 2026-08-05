@@ -16,12 +16,13 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     list(APPEND MKFF_CORE_SOURCES windows_forwarding.c)
 endif()
 
-if(WIN32)
-    # No GNU-syntax assembler available under MSVC; fall back to the
-    # always-correct scalar checksum path (see checksum.c).
-    add_compile_definitions(MKFF_NO_AVX2_ASM)
-else()
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     list(APPEND MKFF_CORE_SOURCES simd/checksum_avx2.S)
+else()
+    # No GNU-syntax assembler under MSVC; macOS's Mach-O assembler
+    # doesn't accept this file's ELF-only GAS directives. Fall back to
+    # the always-correct scalar checksum path (see checksum.c).
+    add_compile_definitions(MKFF_NO_AVX2_ASM)
 endif()
 
 add_library(mkff SHARED ${MKFF_CORE_SOURCES})
