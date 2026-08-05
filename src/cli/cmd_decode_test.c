@@ -48,6 +48,7 @@ int cmd_decode_test(int argc, char **argv) {
         return 1;
     }
 
+#if defined(MKFF_CLI_HAVE_LINUX_COMMANDS)
     MKFF_DrmDeviceInfo device;
     uint32_t device_count = 0;
     mkff_linux_enumerate_drm_devices(ctx, &device, 1, &device_count);
@@ -55,6 +56,7 @@ int cmd_decode_test(int argc, char **argv) {
     MKFF_VaInfo va_info;
     MKFF_INIT_STRUCT_HEADER(&va_info);
     mkff_linux_query_va_info(ctx, NULL, &va_info);
+#endif
 
     MKFF_VideoDecoderDesc dec_desc;
     MKFF_INIT_STRUCT_HEADER(&dec_desc);
@@ -120,8 +122,10 @@ int cmd_decode_test(int argc, char **argv) {
     double elapsed = (start_time >= 0) ? (end_time - start_time) : 0.0;
     double fps = (elapsed > 0.0) ? (double)decoded_frames / elapsed : 0.0;
 
+#if defined(MKFF_CLI_HAVE_LINUX_COMMANDS)
     printf("DRM device:        %s\n", device_count > 0 ? device.path : "(none found)");
     printf("VA vendor:         %s\n", va_info.vendor_string);
+#endif
     printf("selected profile:  %s\n", cli_profile_name(info.profile));
     printf("entrypoint:        %s\n", info.entrypoint == MKFF_VIDEO_ENTRYPOINT_VLD ? "VLD" : "unknown");
     printf("resolution:        %ux%u\n", info.width, info.height);

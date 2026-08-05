@@ -52,9 +52,13 @@
     {
       "name": "windows-msvc-debug",
       "displayName": "Windows / MSVC / Debug",
-      "generator": "Visual Studio 17 2022",
-      "architecture": "x64",
+      "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/windows-msvc-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_C_COMPILER": "cl",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      },
       "condition": {
         "type": "equals",
         "lhs": "${hostSystemName}",
@@ -77,8 +81,7 @@
     },
     {
       "name": "windows-msvc-debug",
-      "configurePreset": "windows-msvc-debug",
-      "configuration": "Debug"
+      "configurePreset": "windows-msvc-debug"
     }
   ],
   "testPresets": [
@@ -100,7 +103,6 @@
     {
       "name": "windows-msvc-debug",
       "configurePreset": "windows-msvc-debug",
-      "configuration": "Debug",
       "output": { "outputOnFailure": true }
     }
   ]

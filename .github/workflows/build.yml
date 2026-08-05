@@ -60,6 +60,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Ninja + cl.exe rather than the Visual Studio generator: it
+      # doesn't depend on guessing which VS version string a given
+      # runner image ships (that broke once already), just on cl.exe
+      # being on PATH, which this action sets up directly.
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      - uses: seanmiddleditch/gha-setup-ninja@master
+
       - name: Configure
         run: cmake --preset windows-msvc-debug
 
