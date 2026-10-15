@@ -23,3 +23,50 @@ Apache License 2.0 text: https://www.apache.org/licenses/LICENSE-2.0
 Copyright notices and the full Apache-2.0 license text are included in the
 upstream libhevc source tree (`LICENSE` / related notice files) fetched at
 configure time.
+
+## FilmCraft codec crates (ArtCraft Team and the FilmCraft contributors)
+
+- Project: https://github.com/storytold/filmcraft (crates/)
+- License: MIT OR Apache-2.0 — MKFF uses them under the MIT License.
+- Used by the Rust crates `mkff-codecs` / `mkff-codecs-capi`
+  (`libmkff_swcodecs`), and by `mkff` with the `software-codecs` feature.
+  Fetched by Cargo at a pinned git revision (see
+  `bindings/rust/mkff-codecs/Cargo.toml`) and linked unmodified: containers
+  (isobmff, matroska, avi, mxf, mpegts, ogg) and decoders (h264, hevc, vp8,
+  vp9, av1, mpeg2v, prores, dnx, apv, aac, opus, ac3, mpa, flac).
+
+  Copyright (c) 2026 ArtCraft Team and the FilmCraft contributors
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+
+## Symphonia
+
+- Project: https://github.com/pdeljanov/Symphonia
+- License: Mozilla Public License 2.0 (file-level copyleft; not GPL/LGPL)
+- Pulled in unmodified by `filmcraft-codecs` as its bootstrap decoder for
+  MP3, Vorbis, ALAC, FLAC and non-LC AAC object types. Source is available
+  from crates.io / the project repository; MKFF does not modify it.
+
+MPL-2.0 text: https://www.mozilla.org/MPL/2.0/
+
+## Other Rust crates
+
+The Rust crates above depend on further crates from crates.io (rayon, image,
+thiserror, …) under permissive licenses (MIT, Apache-2.0, BSD, Zlib,
+Unicode-3.0). `cargo metadata` / `cargo about` list them per build.

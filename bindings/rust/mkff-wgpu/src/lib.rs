@@ -5,7 +5,10 @@
 //! [`mkff::VideoFrame::map_cpu_planes`] → R8 + RG8 textures → YUV→RGB shader.
 //!
 //! Input: raw Annex-B (`.hevc` / `.h264`) or progressive MP4/MOV (`.mp4` /
-//! `.mov` / `ftyp`) via [`mkff::Mp4Demux`].
+//! `.mov` / `ftyp`) via [`mkff::Mp4Demux`] and libmkff's hardware decoders.
+//! Everything else — Matroska / WebM, AVI, MXF, MPEG-TS / PS, Ogg, Y4M, and
+//! MP4s with VP9 / AV1 / ProRes / … — plus any clip libmkff can't decode on
+//! this machine, goes through [`mkff_codecs`] (pure-Rust software decode).
 
 use mkff::{
     Context, CpuPlanes, Mp4Demux, PixelFormat, ReadAuOutcome, ReceiveOutcome, VideoBackend,
@@ -90,6 +93,21 @@ impl Nv12Host {
             uv,
             uv_stride: row_bytes,
         })
+    }
+
+    /// Converts a software-decoded [`mkff_codecs::Frame`] (any layout) to NV12.
+    pub fn from_sw_frame(frame: &mkff_codecs::Frame) -> Self {
+        let (width, height) = (frame.width(), frame.height());
+        let mut y = frame.to_nv12();
+        let uv = y.split_off((width * height) as usize);
+        Nv12Host {
+            width,
+            height,
+            y,
+            y_stride: width,
+            uv,
+            uv_stride: width.div_ceil(2) * 2,
+        }
     }
 
     /// BT.709 limited-range YUV → packed RGBA8 (for egui / CPU display).
@@ -326,6 +344,8 @@ fn annex_b_au_is_keyframe(au: &[u8], codec: VideoCodec) -> bool {
 /// next) without retaining a full-clip RGBA/NV12 cache.
 pub struct VideoSource {
     kind: SourceKind,
+    /// Where the clip came from, for reopening it in software when libmkff fails mid-stream.
+    path: Option<std::path::PathBuf>,
     width: u32,
     height: u32,
     frame_count: usize,
@@ -337,6 +357,19 @@ pub struct VideoSource {
 enum SourceKind {
     Mp4(Mp4Source),
     AnnexB(AnnexBSource),
+    /// Any container / codec, decoded in software by mkff-codecs.
+    Software(mkff_codecs::MediaFile),
+    /// Raw Annex-B decoded in software by mkff-codecs (no usable libmkff decoder).
+    SoftwareAnnexB(SwAnnexBSource),
+}
+
+struct SwAnnexBSource {
+    decoder: mkff_codecs::VideoDecoder,
+    bytes: Vec<u8>,
+    aus: Vec<std::ops::Range<usize>>,
+    keyframes: Vec<usize>,
+    submit_pos: usize,
+    pending: Vec<(usize, Nv12Host)>,
 }
 
 struct Mp4Source {
@@ -372,12 +405,113 @@ struct AnnexBSource {
 }
 
 impl VideoSource {
+    /// Opens any clip: libmkff (hardware first) for progressive MP4/MOV and
+    /// Annex-B H.264 / HEVC, mkff-codecs (software) for every other container
+    /// and codec, and as the fallback when libmkff can't open or decode it.
     pub fn open(path: &std::path::Path) -> Result<Self, String> {
-        if let Some(msg) = reject_unsupported_container_path(path) {
-            return Err(msg);
+        let ext = path_ext(path);
+        let native_ext = matches!(
+            ext.as_str(),
+            "mp4" | "m4v" | "mov" | "h264" | "264" | "avc" | "hevc" | "h265" | "265" | ""
+        );
+        if !native_ext {
+            return Self::open_software(path);
         }
         let bytes = std::fs::read(path).map_err(|e| format!("read: {e}"))?;
-        Self::open_bytes(path, bytes)
+        let mut src = match Self::open_bytes(path, bytes) {
+            Ok(src) => src,
+            Err(native) => Self::open_software(path)
+                .or_else(|sw| {
+                    // raw Annex-B is not a container mkff-codecs' MediaFile opens
+                    let bytes = std::fs::read(path).map_err(|e| format!("read: {e}"))?;
+                    Self::open_annex_b_software(bytes, annex_b_codec(&ext))
+                        .map_err(|e| format!("{sw}; {e}"))
+                })
+                .map_err(|sw| format!("{native}; software: {sw}"))?,
+        };
+        src.path = Some(path.to_path_buf());
+        Ok(src)
+    }
+
+    fn open_software(path: &std::path::Path) -> Result<Self, String> {
+        let media = mkff_codecs::MediaFile::open(path).map_err(|e| e.to_string())?;
+        let video = media.info().video.clone().ok_or("no video stream")?;
+        let frame_count = media.frame_count() as usize;
+        if frame_count == 0 {
+            return Err("video stream has no frames".into());
+        }
+        Ok(VideoSource {
+            kind: SourceKind::Software(media),
+            path: Some(path.to_path_buf()),
+            width: video.width,
+            height: video.height,
+            frame_count,
+            cache: Vec::new(),
+            cache_cap: 2,
+        })
+    }
+
+    /// `codec`: H.264 or HEVC; `None` sniffs the first NAL unit header.
+    fn open_annex_b_software(bytes: Vec<u8>, codec: Option<VideoCodec>) -> Result<Self, String> {
+        let mkff_codec = codec
+            .or_else(|| sniff_annex_b_codec(&bytes))
+            .ok_or("not an Annex-B H.264 / HEVC stream")?;
+        let (codec, aus) = match mkff_codec {
+            VideoCodec::MKFF_VIDEO_CODEC_HEVC => (
+                mkff_codecs::VideoCodec::Hevc,
+                split_hevc_access_units(&bytes),
+            ),
+            _ => (
+                mkff_codecs::VideoCodec::H264,
+                split_h264_access_units(&bytes),
+            ),
+        };
+        if aus.is_empty() {
+            return Err("no access units found".into());
+        }
+        let keyframes: Vec<usize> = aus
+            .iter()
+            .enumerate()
+            .filter_map(|(i, r)| annex_b_au_is_keyframe(&bytes[r.clone()], mkff_codec).then_some(i))
+            .collect();
+        let mut src = SwAnnexBSource {
+            decoder: mkff_codecs::VideoDecoder::new(codec).map_err(|e| e.to_string())?,
+            bytes,
+            aus,
+            keyframes: if keyframes.is_empty() {
+                vec![0]
+            } else {
+                keyframes
+            },
+            submit_pos: 0,
+            pending: Vec::new(),
+        };
+        let first = decode_sw_annex_b_frame(&mut src, 0)?;
+        Ok(VideoSource {
+            width: first.width,
+            height: first.height,
+            frame_count: src.aus.len(),
+            kind: SourceKind::SoftwareAnnexB(src),
+            path: None,
+            cache: vec![(0, first)],
+            cache_cap: 2,
+        })
+    }
+
+    /// Swap a failing libmkff source for a software one (same clip).
+    fn fall_back_to_software(&mut self) -> Result<(), String> {
+        let sw = match (&self.kind, &self.path) {
+            (SourceKind::AnnexB(ab), _) => {
+                // a copy: the libmkff source stays intact if software can't take over either
+                Self::open_annex_b_software(ab.bytes.clone(), Some(ab.codec))?
+            }
+            (SourceKind::Mp4(_), Some(path)) => Self::open_software(path)?,
+            _ => return Err("no software fallback for this source".into()),
+        };
+        self.kind = sw.kind;
+        self.frame_count = sw.frame_count;
+        self.cache.clear();
+        Ok(())
     }
 
     fn open_bytes(path: &std::path::Path, bytes: Vec<u8>) -> Result<Self, String> {
@@ -470,6 +604,7 @@ impl VideoSource {
                 exhausted: false,
                 pending: Vec::new(),
             }),
+            path: None,
             width,
             height,
             frame_count,
@@ -521,6 +656,7 @@ impl VideoSource {
 
         Ok(VideoSource {
             kind: SourceKind::AnnexB(src),
+            path: None,
             width,
             height,
             frame_count,
@@ -553,7 +689,44 @@ impl VideoSource {
             return Ok(&self.cache.last().unwrap().1);
         }
 
-        let host = match &mut self.kind {
+        let host = match self.decode_frame(index) {
+            Ok(h) => h,
+            Err(e) if matches!(self.kind, SourceKind::Mp4(_) | SourceKind::AnnexB(_)) => {
+                // libmkff can't decode this clip here (no hardware decoder, unsupported
+                // profile, …): continue in software.
+                self.fall_back_to_software()
+                    .map_err(|e2| format!("{e}; software fallback: {e2}"))?;
+                if index >= self.frame_count {
+                    return Err(format!(
+                        "{e}; software decode has {} frames",
+                        self.frame_count
+                    ));
+                }
+                self.decode_frame(index)
+                    .map_err(|e2| format!("{e}; software fallback: {e2}"))?
+            }
+            Err(e) => return Err(e),
+        };
+        if self.width == 0 {
+            self.width = host.width;
+            self.height = host.height;
+        }
+        self.cache.push((index, host));
+        while self.cache.len() > self.cache_cap {
+            self.cache.remove(0);
+        }
+        Ok(&self.cache.last().unwrap().1)
+    }
+
+    fn decode_frame(&mut self, index: usize) -> Result<Nv12Host, String> {
+        Ok(match &mut self.kind {
+            SourceKind::Software(media) => {
+                let f = media
+                    .video_frame(index as u64)
+                    .map_err(|e| format!("frame {index}: {e}"))?;
+                Nv12Host::from_sw_frame(&f)
+            }
+            SourceKind::SoftwareAnnexB(sw) => decode_sw_annex_b_frame(sw, index)?,
             SourceKind::Mp4(mp4) => match decode_mp4_frame(mp4, index as u32) {
                 Ok(h) => h,
                 Err(e)
@@ -573,17 +746,55 @@ impl VideoSource {
                 Err(e) => return Err(e),
             },
             SourceKind::AnnexB(ab) => decode_annex_b_frame(ab, index)?,
-        };
-        if self.width == 0 {
-            self.width = host.width;
-            self.height = host.height;
-        }
-        self.cache.push((index, host));
-        while self.cache.len() > self.cache_cap {
-            self.cache.remove(0);
-        }
-        Ok(&self.cache.last().unwrap().1)
+        })
     }
+}
+
+fn decode_sw_annex_b_frame(sw: &mut SwAnnexBSource, index: usize) -> Result<Nv12Host, String> {
+    if let Some(pos) = sw.pending.iter().position(|(i, _)| *i == index) {
+        return Ok(sw.pending.remove(pos).1);
+    }
+    let sync = sw
+        .keyframes
+        .iter()
+        .copied()
+        .rfind(|&k| k <= index)
+        .unwrap_or(0);
+    if sw.submit_pos > index || sw.submit_pos < sync {
+        sw.decoder.reset();
+        sw.submit_pos = sync;
+        sw.pending.clear();
+    }
+    while sw.pending.iter().all(|(i, _)| *i != index) {
+        let frames = if sw.submit_pos >= sw.aus.len() {
+            let rest = sw.decoder.flush();
+            if rest.is_empty() {
+                break;
+            }
+            rest
+        } else {
+            let i = sw.submit_pos;
+            sw.submit_pos += 1;
+            sw.decoder
+                .decode(&sw.bytes[sw.aus[i].clone()], i as i64)
+                .map_err(|e| format!("AU {i}: {e}"))?
+        };
+        sw.pending.extend(
+            frames
+                .iter()
+                .map(|f| (f.pts() as usize, Nv12Host::from_sw_frame(f))),
+        );
+        if sw.pending.len() > 8 {
+            sw.pending.sort_by_key(|(i, _)| *i);
+            let keep_from = sw.pending.len() - 8;
+            sw.pending.drain(0..keep_from);
+        }
+    }
+    sw.pending
+        .iter()
+        .position(|(i, _)| *i == index)
+        .map(|pos| sw.pending.remove(pos).1)
+        .ok_or_else(|| format!("no frame for AU {index}"))
 }
 
 fn make_decoder(
@@ -873,14 +1084,26 @@ fn path_ext(path: &std::path::Path) -> String {
         .to_ascii_lowercase()
 }
 
-fn reject_unsupported_container_path(path: &std::path::Path) -> Option<String> {
-    let ext = path_ext(path);
-    match ext.as_str() {
-        "mkv" | "webm" | "avi" | "ts" | "m2ts" | "mpeg" | "mpg" | "flv" => Some(format!(
-            ".{ext} is not supported — use progressive MP4/MOV (.mp4 / .mov) or \
-             raw Annex-B (.hevc / .h264)"
-        )),
+/// The Annex-B codec an extension names.
+fn annex_b_codec(ext: &str) -> Option<VideoCodec> {
+    match ext {
+        "h264" | "264" | "avc" => Some(VideoCodec::MKFF_VIDEO_CODEC_H264),
+        "hevc" | "h265" | "265" => Some(VideoCodec::MKFF_VIDEO_CODEC_HEVC),
         _ => None,
+    }
+}
+
+/// H.264 or HEVC from the first NAL unit header of an Annex-B stream: HEVC streams open with a
+/// VPS (type 32, two-byte header `40 01`), H.264 with an AUD, SPS or SEI.
+fn sniff_annex_b_codec(bytes: &[u8]) -> Option<VideoCodec> {
+    let start = bytes.windows(3).position(|w| w == [0, 0, 1])? + 3;
+    let (b0, b1) = (*bytes.get(start)?, *bytes.get(start + 1)?);
+    if b0 & 0x81 == 0 && matches!((b0 >> 1) & 0x3F, 32..=35 | 39) && b1 & 7 != 0 {
+        Some(VideoCodec::MKFF_VIDEO_CODEC_HEVC)
+    } else if b0 & 0x80 == 0 && matches!(b0 & 0x1F, 1 | 5..=9) {
+        Some(VideoCodec::MKFF_VIDEO_CODEC_H264)
+    } else {
+        None
     }
 }
 

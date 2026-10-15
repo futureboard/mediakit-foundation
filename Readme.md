@@ -17,8 +17,15 @@ Cross-Platform Media Engine, Inspired by BeOS.
 > Status: **0.1.0-dev**. H.264 and HEVC (Main / Main10) decode on Linux
 > (VA-API), Windows (D3D11 Video Decode), and macOS (VideoToolbox), plus
 > an optional Apache-2.0 libhevc software fallback for HEVC. Progressive
-> MP4/MOV demux (`avc1` / `hvc1` / `hev1` → Annex-B). No audio or
-> fragmented MP4 yet.
+> MP4/MOV demux (`avc1` / `hvc1` / `hev1` → Annex-B).
+>
+> **Every other codec, in software, without FFmpeg:** [`mkff-codecs`](#software-codecs-mkff-codecs)
+> (Rust) and `libmkff_swcodecs` ([`mkff/codecs.h`](include/mkff/codecs.h), C) decode
+> MP4/MOV, MKV/WebM, AVI, MXF, MPEG-TS/PS and Ogg with H.264, HEVC Main/Main10,
+> VP8, VP9, AV1, MPEG-1/2, ProRes, DNxHD/HR, APV and MJPEG video plus AAC,
+> Opus, AC-3/E-AC-3, MP1/2/3, FLAC, ALAC and Vorbis audio — adapted from the
+> pure-Rust [FilmCraft](https://github.com/storytold/filmcraft/tree/main/crates)
+> codec crates.
 >
 > [`.github/workflows/build.yml`](.github/workflows/build.yml) builds and
 > runs the full CTest suite on all three platforms
@@ -68,12 +75,16 @@ src/platform/linux/      VA-API, DMA-BUF, H.264 + HEVC DPB
 src/platform/windows/    D3D11/DXVA, shared handles, H.264 + HEVC DPB
 src/platform/macos/      VideoToolbox, IOSurface export
 src/cli/                 mkff CLI
+include/mkff/codecs.h    C API of libmkff_swcodecs (software codecs)
 bindings/rust/mkff-sys   raw FFI
 bindings/rust/mkff       safe RAII wrapper (incl. Mp4Demux)
+bindings/rust/mkff-codecs       pure-Rust demux + decode of every codec (FilmCraft)
+bindings/rust/mkff-codecs-capi  libmkff_swcodecs: C ABI for mkff-codecs
 bindings/rust/mkff-vk    dma-buf -> VkImage (Linux)
 bindings/rust/mkff-wgpu  decode → map_cpu_planes → wgpu / egui player
 tests/                   CTest suite
 testdata/                tiny Annex-B + progressive .mp4 fixtures
+testdata/codecs/         one tiny clip per container / codec (mkff-codecs)
 ```
 
 ## Requirements
@@ -88,6 +99,8 @@ testdata/                tiny Annex-B + progressive .mp4 fixtures
   `third_party/libhevc/`)
 
 No FFmpeg, GStreamer, or GPL/LGPL dependency is used in the product.
+(`scripts/gen_codec_fixtures.sh` uses an ffmpeg binary only to *encode* the
+test fixtures in `testdata/codecs/`; nothing links or runs it.)
 
 See [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES) for Apache-2.0 libhevc
 attribution when the software fallback is enabled.
@@ -158,12 +171,79 @@ mkff benchmark input.hevc --codec hevc --seconds 10
 mkff codec-info hevc --backend sw
 ```
 
+## Software codecs (`mkff-codecs`)
+
+Pure-Rust, safe-code demux and decode for every container and codec MKFF
+handles, on every platform, with no native codec library. It adapts the
+[FilmCraft](https://github.com/storytold/filmcraft/tree/main/crates) codec
+crates (MIT OR Apache-2.0, written from the public specifications), pinned
+to one revision.
+
+| Kind | Supported |
+|------|-----------|
+| Containers | MP4 / MOV / 3GP, Matroska / WebM, AVI (OpenDML), MXF (OP1a / OP-Atom), MPEG-TS / M2TS, MPEG-PS / VOB, Ogg, YUV4MPEG2, standalone audio files; IVF and Annex-B elementary streams via the packet decoders |
+| Video | H.264 (8-bit 4:2:0), HEVC Main / Main10, VP8, VP9 (profiles 0-3), AV1, MPEG-1 / MPEG-2, ProRes 422 / 4444 (+alpha), DNxHD / DNxHR, APV, Motion JPEG, uncompressed |
+| Audio | AAC (LC, HE-AAC core; raw, ADTS, LATM), Opus, AC-3 / E-AC-3, MPEG audio layers I / II / III, FLAC, ALAC, Vorbis, PCM / LPCM |
+
+Checked against an independent decoder on `testdata/codecs/`: H.264, HEVC
+Main10, VP8, VP9 and AV1 are bit-exact; ProRes, DNxHR and MPEG-2 within ±1
+LSB (IDCT rounding the specs allow).
+
+**Rust:**
+
+```toml
+[dependencies]
+mkff-codecs = { git = "https://github.com/futureboard/mediakit-foundation" }
+# or, alongside libmkff:  mkff = { git = "...", features = ["software-codecs"] }  → mkff::codecs
+```
+
+```rust
+use mkff_codecs::{MediaFile, VideoCodec, VideoDecoder};
+
+// Any file: random access by frame, audio at any rate.
+let clip = MediaFile::open("clip.mkv")?;
+let frame = clip.video_frame(42)?;            // planar YUV 8/10/12-bit or RGBA
+let nv12 = frame.to_nv12();                   // or to_p010() / to_rgba8()
+let pcm = clip.audio(0, 48_000, 48_000)?;     // 1 s of stream 0 at 48 kHz
+
+// Elementary streams, e.g. Annex-B AUs from mkff::Mp4Demux:
+let mut dec = VideoDecoder::new(VideoCodec::H264)?;
+for frame in dec.decode(access_unit, pts)? { /* … */ }
+```
+
+`cargo run -p mkff-codecs --release --example probe -- clip.mxf` prints what
+it sees and can dump NV12 / native planes.
+
+**C (`libmkff_swcodecs`):** build with `cargo build -p mkff-codecs-capi
+--release` (→ `target/release/libmkff_swcodecs.{so,dylib,a}` /
+`mkff_swcodecs.dll`), include [`mkff/codecs.h`](include/mkff/codecs.h). It is
+independent of `libmkff`; link either or both.
+
+```c
+MKFF_SwMedia *m;
+mkff_sw_media_open_path("clip.webm", &m);
+MKFF_SwFrame *f;
+mkff_sw_media_read_video_frame(m, 0, &f);
+MKFF_SwFrameInfo fi; MKFF_INIT_STRUCT_HEADER(&fi);
+mkff_sw_frame_get_info(f, &fi);               /* planes, depth, chroma, colour */
+mkff_sw_frame_destroy(f);
+mkff_sw_media_destroy(m);
+```
+
+Packet decoders (`mkff_sw_video_decoder_*`, `mkff_sw_audio_decoder_*`) follow
+the same submit / receive / flush contract as `mkff_video_decoder_*`.
+`MKFF_VideoCodec` gains `VP8`, `MPEG1`, `MPEG2`, `PRORES`, `DNXHD`, `APV` and
+`MJPEG` (software-only; libmkff's hardware path rejects them as before).
+
 ## Codec coverage (this milestone)
 
 | Codec | Profiles | Output | HW | SW |
 |-------|----------|--------|----|----|
 | H.264 | Baseline/Main (existing) | NV12 | Linux/Windows/macOS | — |
 | HEVC | Main (8-bit 4:2:0), Main10 (10-bit 4:2:0) | NV12 / P010 | VA-API / D3D11 DXVA / VideoToolbox | libhevc Main→NV12 (optional) |
+
+Everything else (and software H.264 / HEVC Main10) is in
+[`mkff-codecs`](#software-codecs-mkff-codecs).
 
 Software fallback uses Ittiam libhevc, which is **8-bit only** in the
 pinned tree (`IHEVCD_UNSUPPORTED_BIT_DEPTH` for Main10). Main10 decode
@@ -205,13 +285,18 @@ cargo run -p mkff-wgpu --example view
 cargo run -p mkff-wgpu --example view -- path/to/clip.hevc
 ```
 
-**Simple player** (egui on wgpu — play/pause, frame step, loop, FPS):
+**Simple player** (egui on wgpu — play/pause, frame step, loop, FPS). Plays
+any container / codec: MP4 and Annex-B go to libmkff's hardware decoders
+first; everything else, and anything libmkff can't decode on this machine,
+falls back to `mkff-codecs`:
 
 ```sh
 cargo run -p mkff-wgpu --example player
 cargo run -p mkff-wgpu --example player -- testdata/tiny_main_256x144.mp4
 cargo run -p mkff-wgpu --example player -- testdata/tiny_baseline_64x64.mp4
 cargo run -p mkff-wgpu --example player -- path/to/clip.hevc
+cargo run -p mkff-wgpu --example player -- testdata/codecs/vp9_opus.webm
+cargo run -p mkff-wgpu --example player -- testdata/codecs/prores_hq.mov
 ```
 
 Defaults to `testdata/tiny_main_256x144.mp4`. Progressive MP4 uses demux +
@@ -222,12 +307,14 @@ not wired yet. Needs a GPU/display; not part of default CI.
 
 ## Non-goals (this milestone)
 
-Fragmented MP4 / audio demux, bitstream seeking as a product feature,
-VP9/AV1, software H.264, production GUI, mid-stream resolution change,
+Fragmented MP4 in libmkff's own demuxer, bitstream seeking as a product
+feature, hardware VP9/AV1, production GUI, mid-stream resolution change,
 long-term reference picture edge cases beyond the supported Main/Main10
 subset.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Third-party libhevc is Apache-2.0; see
-[THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES).
+MIT — see [LICENSE](LICENSE). Third-party libhevc is Apache-2.0; the
+FilmCraft codec crates used by `mkff-codecs` are MIT OR Apache-2.0 (used
+under MIT), and their audio bootstrap decoders come from Symphonia
+(MPL-2.0, unmodified); see [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES).

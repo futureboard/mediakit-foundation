@@ -19,3 +19,26 @@ was generated with libx265 (`profile=main10`, WPP off).
 
 Progressive `.mp4` fixtures are generated offline (no FFmpeg runtime dependency)
 via `scripts/gen_tiny_mp4.py` from the matching Annex-B files, then checked in.
+
+## `codecs/` — software codec fixtures
+
+One tiny synthetic clip (ffmpeg `testsrc2` pattern + 440 Hz `sine`) per
+container / codec that `mkff-codecs` decodes, regenerated with
+`scripts/gen_codec_fixtures.sh` (ffmpeg is only the fixture *encoder*):
+
+| File | Container | Video | Audio |
+|------|-----------|-------|-------|
+| `vp8.ivf` / `vp9.ivf` / `av1.ivf` | IVF | VP8 / VP9 / AV1 | — |
+| `h264_high.h264` | Annex-B | H.264 High, B-frames | — |
+| `vp9_opus.webm` | WebM | VP9 | Opus |
+| `vp8_vorbis.webm` | WebM | VP8 | Vorbis |
+| `av1_aac.mp4` | MP4 | AV1 | AAC |
+| `hevc10_ac3.mkv` | Matroska | HEVC Main10 | AC-3 |
+| `mpeg2_mp2.ts` | MPEG-TS | MPEG-2 | MP2 |
+| `h264_aac.ts` | MPEG-TS | H.264 | AAC (ADTS) |
+| `prores_hq.mov` | QuickTime | ProRes 422 HQ 10-bit | PCM |
+| `prores_4444_alpha.mov` | QuickTime | ProRes 4444 + alpha | — |
+| `dnxhr.mxf` | MXF OP1a | DNxHR LB (256x128) | PCM |
+| `mjpeg_pcm.avi` | AVI | Motion JPEG | PCM |
+| `tone.flac` / `tone.mp3` / `tone.opus` / `tone.aac` | audio | — | FLAC / MP3 / Opus / AAC ADTS |
+| `tone_eac3.mka` / `tone_alac.m4a` | Matroska / MP4 | — | E-AC-3 / ALAC |
