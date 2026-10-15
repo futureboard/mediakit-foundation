@@ -28,7 +28,16 @@ typedef enum MKFF_VideoCodec {
     MKFF_VIDEO_CODEC_H264    = 1,
     MKFF_VIDEO_CODEC_HEVC    = 2,
     MKFF_VIDEO_CODEC_VP9     = 3,
-    MKFF_VIDEO_CODEC_AV1     = 4
+    MKFF_VIDEO_CODEC_AV1     = 4,
+    /* Software-only (libmkff_codecs, see mkff/codecs.h); libmkff's
+     * hardware decoders reject these with CODEC_UNAVAILABLE. */
+    MKFF_VIDEO_CODEC_VP8     = 5,
+    MKFF_VIDEO_CODEC_MPEG1   = 6,
+    MKFF_VIDEO_CODEC_MPEG2   = 7,
+    MKFF_VIDEO_CODEC_PRORES  = 8,
+    MKFF_VIDEO_CODEC_DNXHD   = 9,  /* DNxHD / DNxHR (SMPTE VC-3) */
+    MKFF_VIDEO_CODEC_APV     = 10,
+    MKFF_VIDEO_CODEC_MJPEG   = 11
 } MKFF_VideoCodec;
 
 typedef enum MKFF_VideoProfile {

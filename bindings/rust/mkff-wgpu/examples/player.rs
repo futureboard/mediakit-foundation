@@ -1,12 +1,17 @@
-//! Simple video player: MKFF decode → `map_cpu_planes` (NV12) → RGBA → egui on wgpu.
+//! Simple video player: MKFF decode → NV12 → RGBA → egui on wgpu.
 //!
-//! Accepts progressive MP4/MOV (`.mp4` / `.mov`) or raw Annex-B (`.hevc` / `.h264`).
-//! Large files demux/index quickly and decode on demand (small frame cache).
+//! Plays any container / codec mkff-codecs supports: progressive MP4/MOV and
+//! raw Annex-B (`.hevc` / `.h264`) through libmkff's hardware decoders first,
+//! and MKV / WebM / AVI / MXF / TS / MPEG-PS / Ogg, VP8 / VP9 / AV1 / MPEG-2 /
+//! ProRes / DNx / MJPEG — or anything libmkff can't decode here — in pure-Rust
+//! software (no FFmpeg). Files are indexed quickly and decoded on demand.
 //!
 //! ```sh
 //! cargo run -p mkff-wgpu --example player
 //! cargo run -p mkff-wgpu --example player -- path/to/clip.mp4
 //! cargo run -p mkff-wgpu --example player -- path/to/clip.hevc
+//! cargo run -p mkff-wgpu --example player -- testdata/codecs/vp9_opus.webm
+//! cargo run -p mkff-wgpu --example player -- testdata/codecs/prores_hq.mov
 //! ```
 //!
 //! Space = play/pause · Left/Right = step · Esc = quit.
@@ -289,7 +294,7 @@ impl eframe::App for PlayerApp {
                     ui.add(
                         egui::TextEdit::singleline(&mut self.path_edit)
                             .desired_width(ui.available_width() - 72.0)
-                            .hint_text("Annex-B .hevc/.h264 or progressive .mp4/.mov"),
+                            .hint_text("Any clip: .mp4 .mov .mkv .webm .avi .mxf .ts .mpg .ogg .hevc .h264 …"),
                     );
                     if ui.button("Load").clicked() {
                         let path = PathBuf::from(self.path_edit.trim());

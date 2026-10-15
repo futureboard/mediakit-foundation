@@ -1,0 +1,20 @@
+[package]
+name = "mkff-codecs"
+version = "0.1.0-dev"
+edition = "2021"
+rust-version = "1.95"
+license = "MIT"
+description = "Pure-Rust software demux + decode for every MKFF codec (no FFmpeg), built on the FilmCraft codec crates"
+
+# The FilmCraft codec crates (MIT OR Apache-2.0) are pinned to one revision so
+# every build decodes with the same, reviewed code. Bump all six together.
+[dependencies]
+filmcraft-codecs = { git = "https://github.com/storytold/filmcraft", rev = "9ed9650cad4c9b22cb8d32f4a9ba8050cde20a62" }
+filmcraft-media = { git = "https://github.com/storytold/filmcraft", rev = "9ed9650cad4c9b22cb8d32f4a9ba8050cde20a62" }
+filmcraft-frame = { git = "https://github.com/storytold/filmcraft", rev = "9ed9650cad4c9b22cb8d32f4a9ba8050cde20a62" }
+filmcraft-color = { git = "https://github.com/storytold/filmcraft", rev = "9ed9650cad4c9b22cb8d32f4a9ba8050cde20a62" }
+filmcraft-time = { git = "https://github.com/storytold/filmcraft", rev = "9ed9650cad4c9b22cb8d32f4a9ba8050cde20a62" }
+filmcraft-opus = { git = "https://github.com/storytold/filmcraft", rev = "9ed9650cad4c9b22cb8d32f4a9ba8050cde20a62" }
+# Same version filmcraft-codecs uses for its bootstrap audio decoders (MPL-2.0,
+# unmodified); named here only for the codec ids of FLAC / Vorbis / ALAC / MP3.
+symphonia = { version = "0.5.5", default-features = false }

@@ -40,6 +40,15 @@ jobs:
       - name: Cargo test mkff-vk
         run: cargo test -p mkff-vk
 
+      - name: Cargo test software codecs (mkff-codecs, C ABI, player sources)
+        run: cargo test -p mkff-codecs -p mkff-codecs-capi -p mkff-wgpu --test codecs --test abi --test sources
+
+      - name: C smoke test (libmkff_swcodecs via mkff/codecs.h)
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -Iinclude bindings/rust/mkff-codecs-capi/tests/c/smoke.c \
+             -Ltarget/debug -lmkff_swcodecs -o target/codecs_smoke
+          LD_LIBRARY_PATH=target/debug target/codecs_smoke testdata
+
   macos:
     name: macOS (Clang / VideoToolbox)
     runs-on: macos-latest
@@ -66,6 +75,15 @@ jobs:
 
       - name: Cargo test (bundled native)
         run: cargo test -p mkff
+
+      - name: Cargo test software codecs (mkff-codecs, C ABI)
+        run: cargo test -p mkff-codecs -p mkff-codecs-capi
+
+      - name: C smoke test (libmkff_swcodecs via mkff/codecs.h)
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -Iinclude bindings/rust/mkff-codecs-capi/tests/c/smoke.c \
+             -Ltarget/debug -lmkff_swcodecs -Wl,-rpath,"$PWD/target/debug" -o target/codecs_smoke
+          DYLD_LIBRARY_PATH=target/debug target/codecs_smoke testdata
 
   windows:
     name: Windows (MSVC / D3D11 Video Decode)
@@ -98,3 +116,6 @@ jobs:
 
       - name: Cargo test (bundled native)
         run: cargo test -p mkff
+
+      - name: Cargo test software codecs (mkff-codecs, C ABI)
+        run: cargo test -p mkff-codecs -p mkff-codecs-capi
