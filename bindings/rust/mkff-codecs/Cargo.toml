@@ -7,10 +7,11 @@ license = "MIT"
 description = "Pure-Rust software demux + decode for every MKFF codec (no FFmpeg), built on the FilmCraft codec crates"
 
 # The FilmCraft codec crates (MIT OR Apache-2.0) are pinned to one revision so
-# every build decodes with the same, reviewed code. Bump all six together.
+# every build decodes with the same, reviewed code. Bump all seven together.
 [dependencies]
 filmcraft-codecs = { git = "https://github.com/storytold/filmcraft", rev = "9ed9650cad4c9b22cb8d32f4a9ba8050cde20a62" }
 filmcraft-media = { git = "https://github.com/storytold/filmcraft", rev = "9ed9650cad4c9b22cb8d32f4a9ba8050cde20a62" }
+filmcraft-isobmff = { git = "https://github.com/storytold/filmcraft", rev = "9ed9650cad4c9b22cb8d32f4a9ba8050cde20a62" }
 filmcraft-frame = { git = "https://github.com/storytold/filmcraft", rev = "9ed9650cad4c9b22cb8d32f4a9ba8050cde20a62" }
 filmcraft-color = { git = "https://github.com/storytold/filmcraft", rev = "9ed9650cad4c9b22cb8d32f4a9ba8050cde20a62" }
 filmcraft-time = { git = "https://github.com/storytold/filmcraft", rev = "9ed9650cad4c9b22cb8d32f4a9ba8050cde20a62" }

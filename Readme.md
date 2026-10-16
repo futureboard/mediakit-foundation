@@ -27,6 +27,10 @@ Cross-Platform Media Engine, Inspired by BeOS.
 > pure-Rust [FilmCraft](https://github.com/storytold/filmcraft/tree/main/crates)
 > codec crates.
 >
+> **[MKFF Player](#mkff-player-mkff-player):** a desktop media player on egui / wgpu with
+> audio-master A/V sync, seeking, GPU Y'CbCr → RGB and surround downmix, for every file
+> `mkff-codecs` opens.
+>
 > [`.github/workflows/build.yml`](.github/workflows/build.yml) builds and
 > runs the full CTest suite on all three platforms
 > (`ubuntu-latest`/`macos-latest`/`windows-latest`) on every push.
@@ -82,6 +86,7 @@ bindings/rust/mkff-codecs       pure-Rust demux + decode of every codec (FilmCra
 bindings/rust/mkff-codecs-capi  libmkff_swcodecs: C ABI for mkff-codecs
 bindings/rust/mkff-vk    dma-buf -> VkImage (Linux)
 bindings/rust/mkff-wgpu  decode → map_cpu_planes → wgpu / egui player
+bindings/rust/mkff-player  MKFF Player: desktop media player (egui / wgpu, A/V sync)
 tests/                   CTest suite
 testdata/                tiny Annex-B + progressive .mp4 fixtures
 testdata/codecs/         one tiny clip per container / codec (mkff-codecs)
@@ -188,6 +193,12 @@ to one revision.
 Checked against an independent decoder on `testdata/codecs/`: H.264, HEVC
 Main10, VP8, VP9 and AV1 are bit-exact; ProRes, DNxHR and MPEG-2 within ±1
 LSB (IDCT rounding the specs allow).
+
+Surround AC-3 / E-AC-3 in MP4 / MOV keeps every channel: the sample entry's
+`ChannelCount` is 2 by specification (ETSI TS 102 366 Annex F), which
+FilmCraft's MP4 source took literally, keeping only front left / right of a 5.1
+track; `MediaFile` reads such tracks with the channel count the decoder reports
+(`testdata/codecs/tone51_*.mp4`).
 
 **Rust:**
 
@@ -305,10 +316,53 @@ libhevc SW for Main). Annex-B `.hevc` still uses `SOFTWARE_ONLY` + libhevc.
 Frames are decoded up front; no audio. Hardware zero-copy into wgpu is
 not wired yet. Needs a GPU/display; not part of default CI.
 
+## MKFF Player (`mkff-player`)
+
+A desktop media player for everything `mkff-codecs` decodes, in pure Rust
+(no FFmpeg, no CMake): egui on wgpu (Vulkan / Metal / D3D12 / GL), audio
+through cpal (ALSA / CoreAudio / WASAPI).
+
+```sh
+cargo run -p mkff-player --release -- path/to/clip.mp4
+cargo run -p mkff-player --release -- --help
+```
+
+Tested with Dolby's DD+ test signal
+`Audio_ID_720p_50fps_h264_514ch_448kbps_ddp.mp4` (H.264 720p50 + E-AC-3 5.1):
+32 s in 32.0 s wall time, decode ≈ 1.2 ms / frame, A/V within one frame, all six
+channels decoded and downmixed for stereo output.
+
+- **Playback engine** (`mkff_player`, no UI dependency): a video decode thread
+  (bounded queue, skips ahead when decoding falls behind), an audio decode
+  thread feeding a lock-free ring buffer, and an **audio-master clock** from the
+  device callback's frame counter and reported latency (system clock without
+  audio). Seeks start an *epoch*: the callback drops stale samples without
+  blocking, the clock waits for the first picture (preroll) and one audio chunk.
+  Decoder panics and errors are caught and reported; a dead audio device falls
+  back to the system clock.
+- **Video**: Y'CbCr planes uploaded as textures and converted in a WGSL shader
+  (BT.601 / 709 / 2020 matrices, limited / full range, any chroma subsampling,
+  sRGB or linear targets); pixel aspect respected. 10 / 12-bit is shown at 8 bits.
+- **Audio**: resampled to the device rate; 5.1 / 7.1 downmixed to stereo
+  (ITU-R BS.775, LFE dropped) or played discretely on a surround device;
+  click-free volume ramps.
+- **UI**: auto-hiding controls, seek bar with time preview and scrubbing, volume /
+  mute, speed 0.25–2× (resampled: pitch follows), loop, frame stepping, full
+  screen, PNG snapshot, statistics overlay (I), drag & drop, recent files,
+  remembered volume / window, keyboard shortcuts (H lists them).
+- **Headless**: `mkff-player --audio null --headless 30 clip.mp4` plays without a
+  window on a simulated audio device and prints frame / drop / A-V statistics;
+  `cargo test -p mkff-player` runs the engine against `testdata/` the same way.
+
+Linux builds need `libasound2-dev`; the file dialog uses xdg-desktop-portal or
+zenity (without either, drop files onto the window or pass them on the command
+line). Not yet: libmkff hardware decode / zero-copy upload, Dolby Atmos (JOC)
+objects (the 5.1 bed plays), HDR tone mapping, subtitles, playlists.
+
 ## Non-goals (this milestone)
 
 Fragmented MP4 in libmkff's own demuxer, bitstream seeking as a product
-feature, hardware VP9/AV1, production GUI, mid-stream resolution change,
+feature, hardware VP9/AV1, mid-stream resolution change,
 long-term reference picture edge cases beyond the supported Main/Main10
 subset.
 

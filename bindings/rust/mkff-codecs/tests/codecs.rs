@@ -272,6 +272,53 @@ fn audio_only_files() {
     }
 }
 
+/// Power of `freq` in `x` (Goertzel).
+fn tone_power(x: &[f32], freq: f64, rate: f64) -> f64 {
+    let w = 2.0 * std::f64::consts::PI * freq / rate;
+    let (mut s1, mut s2) = (0.0f64, 0.0f64);
+    for &v in x {
+        let s = f64::from(v) + 2.0 * w.cos() * s1 - s2;
+        s2 = s1;
+        s1 = s;
+    }
+    (s1 * s1 + s2 * s2 - 2.0 * w.cos() * s1 * s2) / (x.len() as f64).powi(2)
+}
+
+/// 5.1 AC-3 / E-AC-3 in MP4 with the spec's ChannelCount of 2 in the sample entry: all six
+/// channels come out, each with its own tone, in WAV order — and at another rate, and after a
+/// seek.
+#[test]
+fn surround_ac3_in_mp4_keeps_every_channel() {
+    // FL FR FC LFE SL SR
+    let tones = [300.0, 500.0, 700.0, 60.0, 900.0, 1100.0];
+    for name in ["codecs/tone51_ac3.mp4", "codecs/tone51_eac3.mp4"] {
+        let m = MediaFile::open(fixture(name)).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!(m.info().audio[0].channels, 6, "{name}");
+        for (start, rate) in [(0i64, 48_000u32), (2400, 48_000), (0, 44_100)] {
+            let buf = m.audio(start, 6000, rate).unwrap();
+            assert_eq!(buf.channel_count(), 6, "{name}");
+            for (c, chan) in buf.channels.iter().enumerate() {
+                // skip the encoder's start-up
+                let x = &chan[2000..];
+                let own = tone_power(x, tones[c], f64::from(rate));
+                for (k, &f) in tones.iter().enumerate() {
+                    if k != c {
+                        let other = tone_power(x, f, f64::from(rate));
+                        assert!(
+                            own > other * 50.0,
+                            "{name} @{start}/{rate}: channel {c} has {f} Hz"
+                        );
+                    }
+                }
+            }
+        }
+        // random access reads the same samples as a sequential one
+        let a = m.audio(3000, 2000, 48_000).unwrap();
+        let _ = m.audio(9000, 100, 48_000).unwrap();
+        assert_eq!(a, m.audio(3000, 2000, 48_000).unwrap(), "{name}");
+    }
+}
+
 fn decode_ivf(name: &str, codec: VideoCodec) {
     let data = std::fs::read(fixture(name)).unwrap();
     let ivf = IvfReader::new(&data).unwrap();
