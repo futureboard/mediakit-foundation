@@ -28,6 +28,7 @@ mod error;
 mod frame;
 pub mod ivf;
 mod media;
+mod mp4_ac3;
 mod video;
 
 pub use audio::{AudioBuffer, AudioCodec, AudioDecoder};

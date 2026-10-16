@@ -40,4 +40,22 @@ $ff $a -c:a aac -b:a 64k -f adts "$out/tone.aac"
 $ff $a -c:a eac3 -b:a 96k "$out/tone_eac3.mka"
 $ff $a44 -c:a alac "$out/tone_alac.m4a"
 
+# 5.1 AC-3 / E-AC-3 in MP4, one tone per channel (FL 300, FR 500, FC 700, LFE 60, SL 900,
+# SR 1100 Hz). ETSI TS 102 366 Annex F has the sample entry's ChannelCount say 2 whatever the
+# layout (the real one is in dac3 / dec3); ffmpeg writes 6, so set it to 2 like Bento4 / MP4Box.
+a51="-f lavfi -i aevalsrc=0.3*sin(2*PI*300*t)|0.3*sin(2*PI*500*t)|0.3*sin(2*PI*700*t)|0.3*sin(2*PI*60*t)|0.3*sin(2*PI*900*t)|0.3*sin(2*PI*1100*t):s=48000:d=0.25:c=5.1"
+$ff $a51 -c:a ac3 -b:a 192k "$out/tone51_ac3.mp4"
+$ff $a51 -c:a eac3 -b:a 192k "$out/tone51_eac3.mp4"
+python3 - "$out/tone51_ac3.mp4" "$out/tone51_eac3.mp4" <<'PY'
+import sys
+for path in sys.argv[1:]:
+    b = bytearray(open(path, "rb").read())
+    for tag in (b"ac-3", b"ec-3"):
+        i = b.find(tag)
+        if i >= 4:
+            # AudioSampleEntry: type, 6 reserved, data_reference_index, 8 reserved, channelcount
+            b[i + 20:i + 22] = (2).to_bytes(2, "big")
+    open(path, "wb").write(b)
+PY
+
 ls -l "$out"

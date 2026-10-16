@@ -42,3 +42,4 @@ container / codec that `mkff-codecs` decodes, regenerated with
 | `mjpeg_pcm.avi` | AVI | Motion JPEG | PCM |
 | `tone.flac` / `tone.mp3` / `tone.opus` / `tone.aac` | audio | — | FLAC / MP3 / Opus / AAC ADTS |
 | `tone_eac3.mka` / `tone_alac.m4a` | Matroska / MP4 | — | E-AC-3 / ALAC |
+| `tone51_ac3.mp4` / `tone51_eac3.mp4` | MP4 | — | 5.1 AC-3 / E-AC-3, one tone per channel (FL 300, FR 500, FC 700, LFE 60, SL 900, SR 1100 Hz), sample entry `ChannelCount` 2 as the spec requires |

@@ -1,9 +1,11 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use filmcraft_media::reader::SharedReader;
 use filmcraft_media::{FrameRequest, SharedSource};
 use filmcraft_time::{FrameRate, Tick};
 
+use crate::mp4_ac3::Ac3Tracks;
 use crate::{AudioBuffer, Error, Frame, Result};
 
 /// What a [`MediaFile`] holds.
@@ -69,6 +71,8 @@ pub struct MediaInfo {
 pub struct MediaFile {
     src: SharedSource,
     info: MediaInfo,
+    /// Surround AC-3 / E-AC-3 tracks in MP4 read with all their channels (see `mp4_ac3`).
+    ac3: Option<Arc<Ac3Tracks>>,
 }
 
 impl MediaFile {
@@ -82,20 +86,30 @@ impl MediaFile {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
+        let reader: SharedReader = Arc::new(reader);
         let src = filmcraft_media::reader::open_reader(
             &name,
-            Arc::new(reader),
+            Arc::clone(&reader),
             &filmcraft_codecs::reader_openers(),
             &filmcraft_codecs::openers(),
         )?;
-        Ok(Self::from_source(src))
+        Ok(Self::from_source(src).with_reader(&reader))
     }
 
     /// Open media held in memory. `name` (a file name) only breaks ties for formats that can't be
     /// told apart by content.
     pub fn from_bytes(name: &str, bytes: impl Into<Arc<[u8]>>) -> Result<Self> {
-        let src = filmcraft_media::open_bytes(name, bytes.into(), &filmcraft_codecs::openers())?;
-        Ok(Self::from_source(src))
+        let bytes: Arc<[u8]> = bytes.into();
+        let src =
+            filmcraft_media::open_bytes(name, Arc::clone(&bytes), &filmcraft_codecs::openers())?;
+        let reader: SharedReader = Arc::new(filmcraft_media::reader::MemReader(bytes));
+        Ok(Self::from_source(src).with_reader(&reader))
+    }
+
+    /// Check the file's bytes for streams the source reads incompletely.
+    fn with_reader(mut self, reader: &SharedReader) -> Self {
+        self.ac3 = Ac3Tracks::detect(reader, &mut self.info).map(Arc::new);
+        self
     }
 
     /// Wrap an already-opened FilmCraft media source.
@@ -133,7 +147,11 @@ impl MediaFile {
                 .collect(),
             file_size: i.file_size,
         };
-        Self { src, info }
+        Self {
+            src,
+            info,
+            ac3: None,
+        }
     }
 
     pub fn info(&self) -> &MediaInfo {
@@ -210,6 +228,13 @@ impl MediaFile {
         };
         if rate == 0 {
             return Err(Error::InvalidArgument("sample rate 0".into()));
+        }
+        if let Some(r) = self
+            .ac3
+            .as_ref()
+            .and_then(|o| o.audio(stream, start, frames, rate))
+        {
+            return r;
         }
         let b = self.src.audio_stream(stream, start, frames, rate)?;
         Ok(AudioBuffer {
