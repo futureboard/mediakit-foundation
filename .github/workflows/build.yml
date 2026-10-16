@@ -16,7 +16,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq cmake ninja-build clang pkg-config libva-dev libdrm-dev
+          sudo apt-get install -y -qq cmake ninja-build clang pkg-config libva-dev libdrm-dev libasound2-dev
 
       - name: Configure
         run: cmake --preset linux-clang-debug
@@ -48,6 +48,10 @@ jobs:
           cc -std=c11 -Wall -Wextra -Werror -Iinclude bindings/rust/mkff-codecs-capi/tests/c/smoke.c \
              -Ltarget/debug -lmkff_swcodecs -o target/codecs_smoke
           LD_LIBRARY_PATH=target/debug target/codecs_smoke testdata
+
+      # Headless: decode threads, simulated audio device, A/V clock (no GPU / sound card)
+      - name: Cargo test player (mkff-player)
+        run: cargo test -p mkff-player
 
   macos:
     name: macOS (Clang / VideoToolbox)
@@ -85,6 +89,9 @@ jobs:
              -Ltarget/debug -lmkff_swcodecs -Wl,-rpath,"$PWD/target/debug" -o target/codecs_smoke
           DYLD_LIBRARY_PATH=target/debug target/codecs_smoke testdata
 
+      - name: Cargo test player (mkff-player)
+        run: cargo test -p mkff-player
+
   windows:
     name: Windows (MSVC / D3D11 Video Decode)
     runs-on: windows-latest
@@ -119,3 +126,6 @@ jobs:
 
       - name: Cargo test software codecs (mkff-codecs, C ABI)
         run: cargo test -p mkff-codecs -p mkff-codecs-capi
+
+      - name: Cargo test player (mkff-player)
+        run: cargo test -p mkff-player
