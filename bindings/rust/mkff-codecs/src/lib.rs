@@ -19,11 +19,15 @@
 //! - [`VideoDecoder`] / [`AudioDecoder`]: stateful packet decoders for elementary streams, e.g.
 //!   the Annex-B access units from `mkff::Mp4Demux`, or [`ivf::IvfReader`] frames.
 //!
+//! [`encode`]: H.264 / ProRes video and AAC-LC audio encoders and an MP4 / MOV writer
+//! (progressive, or fragmented for crash-safe live recording).
+//!
 //! Frames come out as planar Y'CbCr (8 or 16-bit, 4:2:0 / 4:2:2 / 4:4:4, optional alpha) or RGBA;
 //! [`Frame::to_nv12`], [`Frame::to_p010`] and [`Frame::to_rgba8`] convert to the formats the rest
 //! of MKFF (and a GPU upload) expects.
 
 mod audio;
+pub mod encode;
 mod error;
 mod frame;
 pub mod ivf;

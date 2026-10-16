@@ -225,6 +225,27 @@ for frame in dec.decode(access_unit, pts)? { /* … */ }
 `cargo run -p mkff-codecs --release --example probe -- clip.mxf` prints what
 it sees and can dump NV12 / native planes.
 
+**Encode + mux (`mkff_codecs::encode`):** H.264 (Baseline / Main / High, CRF / CBR / VBR,
+optional B-frames) and ProRes (Proxy … 4444 XQ, alpha) video from RGBA8 (or planar 4:2:0 for
+H.264), AAC-LC audio (1–8 channels, CBR), written to MP4 / MOV by `MediaWriter`, either
+progressive or fragmented (a fragment per video keyframe, so a recording cut short stays
+playable). Encoders from the same pinned FilmCraft revision (`filmcraft-h264enc`,
+`filmcraft-prores`, `filmcraft-aac`, `filmcraft-isobmff`).
+
+```rust
+use mkff_codecs::encode::{AudioEncoder, Container, MediaWriter, VideoEncoder, VideoEncoderConfig};
+
+let mut video = VideoEncoder::new(VideoEncoderConfig::h264(1920, 1080, 60, 1))?;
+let mut audio = AudioEncoder::aac(48_000, 2, 192_000)?;
+let mut out = MediaWriter::create("show.mp4", Container::Mp4, /* fragmented */ true)?;
+let (v, a) = (out.add_video_track(&video)?, out.add_audio_track(&audio)?);
+for p in video.encode_rgba(&rgba, frame_index)? { out.write(v, &p)?; }
+for p in audio.encode(&[&left, &right])? { out.write(a, &p)?; }
+// … then video.flush() / audio.flush() into `out`, and out.finish()
+```
+
+`cargo test -p mkff-codecs --test encode` round-trips every encoder through `MediaFile`.
+
 **C (`libmkff_swcodecs`):** build with `cargo build -p mkff-codecs-capi
 --release` (→ `target/release/libmkff_swcodecs.{so,dylib,a}` /
 `mkff_swcodecs.dll`), include [`mkff/codecs.h`](include/mkff/codecs.h). It is

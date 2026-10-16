@@ -13,6 +13,8 @@ pub enum Error {
     NoStream(&'static str),
     /// A caller argument is out of range.
     InvalidArgument(String),
+    /// Encoding or muxing failed.
+    Encode(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -25,6 +27,7 @@ impl fmt::Display for Error {
             Error::Io(s) => write!(f, "I/O error: {s}"),
             Error::NoStream(kind) => write!(f, "no {kind} stream"),
             Error::InvalidArgument(s) => write!(f, "invalid argument: {s}"),
+            Error::Encode(s) => write!(f, "encode error: {s}"),
         }
     }
 }
