@@ -23,6 +23,8 @@ default-members = [
 # keep debug builds and `cargo test` usable on real clips.
 [profile.dev.package.filmcraft-h264]
 opt-level = 3
+[profile.dev.package.filmcraft-h264enc]
+opt-level = 3
 [profile.dev.package.filmcraft-hevc]
 opt-level = 3
 [profile.dev.package.filmcraft-vp8]

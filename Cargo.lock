@@ -1471,6 +1471,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "filmcraft-h264enc"
+version = "0.8.0"
+source = "git+https://github.com/storytold/filmcraft?rev=9ed9650cad4c9b22cb8d32f4a9ba8050cde20a62#9ed9650cad4c9b22cb8d32f4a9ba8050cde20a62"
+dependencies = [
+ "filmcraft-bitstream",
+ "rayon",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "filmcraft-hevc"
 version = "0.8.0"
 source = "git+https://github.com/storytold/filmcraft?rev=9ed9650cad4c9b22cb8d32f4a9ba8050cde20a62#9ed9650cad4c9b22cb8d32f4a9ba8050cde20a62"
@@ -2410,13 +2420,17 @@ dependencies = [
 name = "mkff-codecs"
 version = "0.1.0-dev"
 dependencies = [
+ "filmcraft-aac",
  "filmcraft-codecs",
  "filmcraft-color",
  "filmcraft-frame",
+ "filmcraft-h264enc",
  "filmcraft-isobmff",
  "filmcraft-media",
  "filmcraft-opus",
+ "filmcraft-prores",
  "filmcraft-time",
+ "rayon",
  "symphonia",
 ]
 

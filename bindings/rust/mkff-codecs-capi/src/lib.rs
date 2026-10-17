@@ -123,6 +123,7 @@ fn fail(e: Error) -> MKFF_Result {
     let code = match &e {
         Error::Unsupported(_) => MKFF_RESULT_ERROR_NOT_SUPPORTED,
         Error::Decode(_) => MKFF_RESULT_ERROR_DECODE,
+        Error::Encode(_) => MKFF_RESULT_ERROR_INTERNAL,
         Error::Io(_) | Error::NoStream(_) | Error::InvalidArgument(_) => {
             MKFF_RESULT_ERROR_INVALID_ARGUMENT
         }
