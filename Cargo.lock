@@ -2442,6 +2442,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "mkff-hwenc"
+version = "0.1.0-dev"
+dependencies = [
+ "log",
+ "mkff-codecs",
+ "rayon",
+ "windows 0.62.2",
+]
+
+[[package]]
 name = "mkff-player"
 version = "0.1.0-dev"
 dependencies = [

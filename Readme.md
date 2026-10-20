@@ -246,6 +246,27 @@ for p in audio.encode(&[&left, &right])? { out.write(a, &p)?; }
 
 `cargo test -p mkff-codecs --test encode` round-trips every encoder through `MediaFile`.
 
+**Hardware H.264 encode (`mkff-hwenc`):** NVIDIA **NVENC**, Intel **Quick Sync (QSV)** and AMD
+**AMF** through the Media Foundation encoder each driver installs (Windows; nothing linked at
+build time). Encoders on every GPU are found, including ones without a display (`MFTEnum2` per
+DXGI adapter), discrete GPUs first. RGBA or NV12 in, the same `Packet`s as `mkff_codecs::encode`
+out (AVCC), plus the `avcC` for `MediaWriter::add_h264_track` or an FLV / RTMP muxer. CBR /
+peak-constrained VBR / constant quality, GOP, profile, speed / quality, low latency, no B-frames.
+
+```rust
+use mkff_hwenc::{HwEncoderConfig, HwVideoEncoder, Vendor};
+
+let mut enc = HwVideoEncoder::new(Some(Vendor::Nvidia), HwEncoderConfig::cbr(1920, 1080, 60, 1, 6000))?;
+for p in enc.encode_rgba(&rgba, frame_index)? { /* … */ }
+let mut out = MediaWriter::create("show.mp4", Container::Mp4, true)?;
+let v = out.add_h264_track(enc.avcc().unwrap(), 1920, 1080, enc.timescale())?;
+```
+
+1080p60 on a GTX 1060 / UHD 730: ≈ 3 ms per frame including RGBA → NV12 (software: 11–23 ms).
+`cargo test -p mkff-hwenc --release` encodes with every encoder present, muxes with `MediaWriter`
+and decodes the result back through `MediaFile` (corners, sizes not a multiple of 16, CBR / VBR /
+quality).
+
 **C (`libmkff_swcodecs`):** build with `cargo build -p mkff-codecs-capi
 --release` (→ `target/release/libmkff_swcodecs.{so,dylib,a}` /
 `mkff_swcodecs.dll`), include [`mkff/codecs.h`](include/mkff/codecs.h). It is

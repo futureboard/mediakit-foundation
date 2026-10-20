@@ -521,6 +521,16 @@ impl MediaWriter {
         Ok(TrackId(id))
     }
 
+    /// Add an H.264 track for packets from another encoder (e.g. the hardware encoders of
+    /// `mkff-hwenc`), before the first packet. `avcc` is the AVCDecoderConfigurationRecord;
+    /// packets carry 4-byte length-prefixed NAL units timed in `timescale`.
+    pub fn add_h264_track(&mut self, avcc: &[u8], width: u16, height: u16, timescale: u32) -> Result<TrackId> {
+        let avc = AvcConfig::parse(avcc).map_err(mux_err)?;
+        let id = self.add_track(TrackConfig::new(SampleEntry::avc(avc, width, height), timescale))?;
+        self.video_track.get_or_insert(id);
+        Ok(TrackId(id))
+    }
+
     /// Add an audio track (before the first packet).
     pub fn add_audio_track(&mut self, enc: &AudioEncoder) -> Result<TrackId> {
         let mut cfg = TrackConfig::new(enc.sample_entry(), enc.timescale());
