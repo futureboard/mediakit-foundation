@@ -160,8 +160,8 @@ fn encode_to_every_container_and_back() {
         ("alac.m4a", CodecId::Alac, 24, true, 100.0),
         ("pcm.m4a", CodecId::Pcm, 16, true, 80.0),
         ("out.mp3", CodecId::MpegAudio, 0, true, 15.0),
-        ("mp3.m4a", CodecId::MpegAudio, 0, false, 15.0),
-        ("aac.m4a", CodecId::Aac, 0, false, 15.0),
+        ("mp3.m4a", CodecId::MpegAudio, 0, true, 15.0),
+        ("aac.m4a", CodecId::Aac, 0, true, 15.0),
         ("out.aac", CodecId::Aac, 0, false, 0.0),
     ];
     for &(file, codec, bits, exact, min_snr) in cases {

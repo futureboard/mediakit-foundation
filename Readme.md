@@ -99,6 +99,7 @@ bindings/rust/mkff-codecs-capi  libmkff_swcodecs: C ABI for mkff-codecs
 bindings/rust/mkff-vk    dma-buf -> VkImage (Linux)
 bindings/rust/mkff-wgpu  decode → map_cpu_planes → wgpu / egui player
 bindings/rust/mkff-player  MKFF Player: desktop media player (egui / wgpu, A/V sync)
+bindings/rust/mkff-cli     mkfx: FFmpeg-style command-line tool (probe, transcode, remux)
 bindings/rust/mkff-hwenc   hardware H.264 encode (NVENC / QSV / AMF) + Media Kit add-on
 bindings/rust/mkff-mediakit  BeOS-style Media Kit: roster, add-ons, nodes, buffers, accelerants
 bindings/rust/mkff-audio   MKFF's audio stack: AudioFile, AudioWriter, codec registry, add-on
@@ -459,6 +460,36 @@ Defaults to `testdata/tiny_main_256x144.mp4`. Progressive MP4 uses demux +
 libhevc SW for Main). Annex-B `.hevc` still uses `SOFTWARE_ONLY` + libhevc.
 Frames are decoded up front; no audio. Hardware zero-copy into wgpu is
 not wired yet. Needs a GPU/display; not part of default CI.
+
+## Command-line tool (`mkfx`)
+
+`mkfx` (crate `mkff-cli`) is an FFmpeg-style command line over MKFF:
+`mkfx [global] {[input options] -i input}... {[output options] output}...`. Input
+options (`-ss`, `-t`, `-to` before `-i`) seek the input; output options shape each
+output file.
+
+```sh
+mkfx -i song.flac -c:a mp3 -b:a 192k song.mp3              # MP3 encode (gapless Info / LAME tag)
+mkfx -i talk.wav -ar 16000 -ac 1 -af volume=-3dB talk.m4a  # resample, downmix, gain, AAC
+mkfx -ss 30 -i talk.m4a -t 60 excerpt.wav                  # sample-exact cut
+mkfx -i movie.mp4 -c:a copy movie.m4a                      # audio stream copy (remux)
+mkfx -i clip.mov -c:v h264_hw -b:v 6M -vf scale=1280:-2 clip.mp4   # GPU (NVENC / QSV / AMF)
+mkfx -i clip.mp4 -c:v prores -profile:v hq -an clip.mov    # ProRes intermediate
+mkfx -i anything.mkv                                       # describe the input
+mkfx -codecs | -encoders | -formats | -hwaccels            # what this build / machine can do
+```
+
+| | |
+|---|---|
+| Audio encoders | `aac`, `mp3` (`libmp3lame` alias), `flac` (`-compression_level`), `alac`, `pcm_s16le` / `pcm_s24le` / `pcm_f32le` |
+| Video encoders | `h264` (software; `-crf`, `-b:v`, `-preset`, `-g`, `-bf`), `h264_hw` / `h264_nvenc` / `h264_qsv` / `h264_amf` (GPU through `mkff-hwenc`), `prores` (`-profile:v proxy…4444xq`) |
+| Outputs | `.mp3`, `.aac`, `.flac`, `.wav`, `.m4a`, `.mp4` / `.mov` (H.264 / ProRes + AAC), `.ogg` / `.opus` (Opus stream copy) |
+| Stream copy | `-c:a copy` between MKFF's own containers (MP4 / M4A, MP3, ADTS, FLAC, Ogg Opus), gapless metadata kept |
+| Other | `-map`, `-an` / `-vn`, `-ar`, `-ac` (standard downmix, normalised), `-af volume=`, `-r`, `-s` / `-vf scale=W:H` (`-1` / `-2` keep aspect), `-movflags +frag_keyframe`, `-y` / `-n`, `-v`, `-nostats` |
+
+Not yet: video stream copy, Opus / Vorbis / AC-3 encoders, filters beyond `volume`
+and `scale`. `mkfx -hwaccels` lists the Media Kit's accelerants (one per GPU) and
+their decode / encode / video-processor hooks.
 
 ## MKFF Player (`mkff-player`)
 
