@@ -216,6 +216,15 @@ impl<W: Write + Seek> M4aWriter<W> {
         Ok(())
     }
 
+    /// Set the real length of `track` in samples after the priming (e.g. once an encoder has been
+    /// flushed and the input length is known), so the edit list also hides the end padding.
+    /// Overrides [`M4aTrack::duration`]; call before `finish`.
+    pub fn set_duration(&mut self, track: usize, samples: Option<u64>) -> Result<()> {
+        let t = self.tracks.get_mut(track).ok_or_else(|| Error::InvalidArgument(format!("no track {track}")))?;
+        t.desc.duration = samples;
+        Ok(())
+    }
+
     /// Append one packet of `track`: a compressed access unit with its duration in the track's
     /// timescale, or for PCM interleaved frames (`duration` = frame count, checked against the
     /// data length).

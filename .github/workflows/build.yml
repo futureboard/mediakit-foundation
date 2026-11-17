@@ -41,7 +41,7 @@ jobs:
         run: cargo test -p mkff-vk
 
       - name: Cargo test MKFF audio stack + Media Kit
-        run: cargo test -p mkff-audio-core -p mkff-mp3 -p mkff-aac -p mkff-flac -p mkff-alac -p mkff-ac3 -p mkff-opus -p mkff-vorbis -p mkff-audio-format -p mkff-audio -p mkff-mediakit
+        run: cargo test -p mkff-audio-core -p mkff-mp3 -p mkff-aac -p mkff-flac -p mkff-alac -p mkff-ac3 -p mkff-opus -p mkff-vorbis -p mkff-audio-format -p mkff-audio -p mkff-mediakit -p mkff-cli
 
       - name: Cargo test software codecs (mkff-codecs, C ABI, player sources)
         run: cargo test -p mkff-codecs -p mkff-codecs-capi -p mkff-wgpu --test codecs --test abi --test sources
@@ -84,7 +84,7 @@ jobs:
         run: cargo test -p mkff
 
       - name: Cargo test MKFF audio stack + Media Kit
-        run: cargo test -p mkff-audio-core -p mkff-mp3 -p mkff-aac -p mkff-flac -p mkff-alac -p mkff-ac3 -p mkff-opus -p mkff-vorbis -p mkff-audio-format -p mkff-audio -p mkff-mediakit
+        run: cargo test -p mkff-audio-core -p mkff-mp3 -p mkff-aac -p mkff-flac -p mkff-alac -p mkff-ac3 -p mkff-opus -p mkff-vorbis -p mkff-audio-format -p mkff-audio -p mkff-mediakit -p mkff-cli
 
       - name: Cargo test software codecs (mkff-codecs, C ABI)
         run: cargo test -p mkff-codecs -p mkff-codecs-capi
@@ -131,7 +131,7 @@ jobs:
         run: cargo test -p mkff
 
       - name: Cargo test MKFF audio stack + Media Kit
-        run: cargo test -p mkff-audio-core -p mkff-mp3 -p mkff-aac -p mkff-flac -p mkff-alac -p mkff-ac3 -p mkff-opus -p mkff-vorbis -p mkff-audio-format -p mkff-audio -p mkff-mediakit
+        run: cargo test -p mkff-audio-core -p mkff-mp3 -p mkff-aac -p mkff-flac -p mkff-alac -p mkff-ac3 -p mkff-opus -p mkff-vorbis -p mkff-audio-format -p mkff-audio -p mkff-mediakit -p mkff-cli
 
       - name: Cargo test software codecs (mkff-codecs, C ABI)
         run: cargo test -p mkff-codecs -p mkff-codecs-capi

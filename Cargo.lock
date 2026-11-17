@@ -2466,6 +2466,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "mkff-cli"
+version = "0.1.0-dev"
+dependencies = [
+ "mkff-audio",
+ "mkff-codecs",
+ "mkff-hwenc",
+ "mkff-mediakit",
+]
+
+[[package]]
 name = "mkff-codecs"
 version = "0.1.0-dev"
 dependencies = [

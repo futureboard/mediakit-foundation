@@ -246,7 +246,11 @@ impl AudioWriter {
             }
             Sink::Adts(w) => flush(w.finish()?),
             Sink::Flac(w) => flush(w.finish(Some(&config))?),
-            Sink::M4a(w, _) => flush(w.finish()?),
+            Sink::M4a(mut w, id) => {
+                // gapless: the edit list hides the priming and the end padding
+                w.set_duration(id, Some(total))?;
+                flush(w.finish()?)
+            }
         }
     }
 }
