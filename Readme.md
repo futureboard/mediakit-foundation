@@ -23,9 +23,21 @@ Cross-Platform Media Engine, Inspired by BeOS.
 > (Rust) and `libmkff_swcodecs` ([`mkff/codecs.h`](include/mkff/codecs.h), C) decode
 > MP4/MOV, MKV/WebM, AVI, MXF, MPEG-TS/PS and Ogg with H.264, HEVC Main/Main10,
 > VP8, VP9, AV1, MPEG-1/2, ProRes, DNxHD/HR, APV and MJPEG video plus AAC,
-> Opus, AC-3/E-AC-3, MP1/2/3, FLAC, ALAC and Vorbis audio — adapted from the
-> pure-Rust [FilmCraft](https://github.com/storytold/filmcraft/tree/main/crates)
-> codec crates.
+> Opus, AC-3/E-AC-3, MP1/2/3, FLAC, ALAC and Vorbis audio. Video is adapted from
+> the pure-Rust [FilmCraft](https://github.com/storytold/filmcraft/tree/main/crates)
+> codec crates (being replaced step by step).
+>
+> **MKFF's own audio stack:** [`mkff-audio`](#mkff-audio-mkff-audio) decodes MP3,
+> AAC, FLAC, ALAC, AC-3/E-AC-3, Opus, Vorbis and PCM and encodes MP3, AAC, FLAC,
+> ALAC and WAV, with its own WAV / AIFF / MP3 / ADTS / FLAC / Ogg / MP4 demuxers and
+> muxers. All of it is written from the specifications, with no FilmCraft or
+> symphonia, and `mkff-codecs` uses it for all audio it demuxes itself.
+>
+> **[Media Kit](#media-kit-mkff-mediakit):** a BeOS-style Media Kit (`mkff-mediakit`):
+> media roster, add-ons / flavors, event-looper nodes, shared-memory buffer groups,
+> time sources, and *accelerants* — one per GPU — that put DXVA decode and
+> NVENC / Quick Sync / AMF encode behind the same codec selection as the software
+> codecs on Windows.
 >
 > **[MKFF Player](#mkff-player-mkff-player):** a desktop media player on egui / wgpu with
 > audio-master A/V sync, seeking, GPU Y'CbCr → RGB and surround downmix, for every file
@@ -82,14 +94,21 @@ src/cli/                 mkff CLI
 include/mkff/codecs.h    C API of libmkff_swcodecs (software codecs)
 bindings/rust/mkff-sys   raw FFI
 bindings/rust/mkff       safe RAII wrapper (incl. Mp4Demux)
-bindings/rust/mkff-codecs       pure-Rust demux + decode of every codec (FilmCraft)
+bindings/rust/mkff-codecs       pure-Rust demux + decode of every codec (audio: mkff-audio; video: FilmCraft)
 bindings/rust/mkff-codecs-capi  libmkff_swcodecs: C ABI for mkff-codecs
 bindings/rust/mkff-vk    dma-buf -> VkImage (Linux)
 bindings/rust/mkff-wgpu  decode → map_cpu_planes → wgpu / egui player
 bindings/rust/mkff-player  MKFF Player: desktop media player (egui / wgpu, A/V sync)
+bindings/rust/mkff-hwenc   hardware H.264 encode (NVENC / QSV / AMF) + Media Kit add-on
+bindings/rust/mkff-mediakit  BeOS-style Media Kit: roster, add-ons, nodes, buffers, accelerants
+bindings/rust/mkff-audio   MKFF's audio stack: AudioFile, AudioWriter, codec registry, add-on
+bindings/rust/mkff-audio-core    bit I/O, FFT / MDCT, CRCs, resampler, codec traits
+bindings/rust/mkff-audio-format  WAV / AIFF / MP3 / ADTS / FLAC / Ogg / MP4 demux + mux
+bindings/rust/mkff-{mp3,aac,flac,alac,ac3,opus,vorbis}  the codecs
 tests/                   CTest suite
 testdata/                tiny Annex-B + progressive .mp4 fixtures
 testdata/codecs/         one tiny clip per container / codec (mkff-codecs)
+testdata/audio/          per-codec audio fixtures + reference decodes (README in each)
 ```
 
 ## Requirements
@@ -176,13 +195,97 @@ mkff benchmark input.hevc --codec hevc --seconds 10
 mkff codec-info hevc --backend sw
 ```
 
+## MKFF audio (`mkff-audio`)
+
+MKFF's own audio codecs and containers, in safe Rust with no dependencies outside
+the workspace. Each codec is its own crate, written from its specification and
+checked against FFmpeg / libopus / libvorbis decodes of the fixtures in
+`testdata/audio/` (SNR is per channel; "bit-exact" means identical integer
+samples):
+
+| Codec | Crate | Decode (vs reference) | Encode |
+|-------|-------|-----------------------|--------|
+| MP3 (MPEG-1 / 2 / 2.5, layers I, II, III) | `mkff-mp3` | 117–124 dB | Layer III CBR 8–320 kbit/s, joint stereo, Info / LAME gapless tag |
+| AAC-LC (raw, ADTS, LATM / LOAS) | `mkff-aac` | 136–138 dB | AAC-LC 1–8 ch, TNS, M/S, PNS, exact bitrate |
+| FLAC | `mkff-flac` | bit-exact | levels 0–8, 4–32 bit, ~5% smaller than FFmpeg's |
+| ALAC | `mkff-alac` | bit-exact | 16 / 20 / 24 / 32-bit |
+| AC-3 / E-AC-3 (incl. 7.1 dependent substreams, AHT, SPX) | `mkff-ac3` | 99–137 dB | — |
+| Opus (SILK, CELT, hybrid, multistream) | `mkff-opus` | SILK bit-exact, CELT / hybrid 81–87 dB; RFC 8251 vectors range-exact | — |
+| Vorbis | `mkff-vorbis` | 130 dB | — |
+| PCM (int / float / A-law / µ-law) | `mkff-audio-format` | exact | WAV / AIFF / MP4 |
+
+Known gaps: HE-AAC plays its AAC-LC core upsampled (no SBR / PS yet); E-AC-3
+enhanced coupling is unsupported; Opus FEC is not used.
+
+Containers (`mkff-audio-format`): WAV / RF64 / BW64, AIFF / AIFF-C, raw MPEG audio
+(ID3, Xing / VBRI / LAME gapless), ADTS, FLAC, Ogg (Vorbis / Opus / FLAC), MP4 / M4A /
+MOV audio tracks (fragmented too); writers for each.
+
+```rust
+use mkff_audio::{AudioFile, AudioWriter, CodecId, EncoderSettings};
+
+// Decode: gapless, sample-exact seek, random access at any rate.
+let mut f = AudioFile::open("song.m4a")?;
+f.seek(44_100 * 30)?;
+let chunk = f.next_chunk()?;
+let window = f.read(0, 1024, 48_000)?;
+
+// Encode: the container comes from the extension (.mp3 .m4a .aac .flac .wav).
+let s = EncoderSettings::new(CodecId::MpegAudio, 44_100, 2).with_bitrate(192_000);
+let mut w = AudioWriter::create("out.mp3", s)?;
+w.write(&[&left, &right])?;
+w.finish()?;
+```
+
+## Media Kit (`mkff-mediakit`)
+
+A BeOS-style Media Kit, in-process:
+
+| BeOS | MKFF |
+|------|------|
+| `BMediaRoster` + `media_server` | `MediaRoster`: add-ons, nodes, connections, codec selection |
+| `BMediaAddOn` / `flavor_info` | `MediaAddOn` / `FlavorInfo`, plus where a flavor runs (`Acceleration`) |
+| `BBufferProducer` / `BBufferConsumer` / `BMediaEventLooper` | `MediaNode`: one thread and timed event queue per node |
+| `media_format` negotiation | `MediaFormat` wildcards: `FormatProposal` → `AcceptFormat` → `PrepareToConnect` → `Connect` |
+| `BBuffer` / `BBufferGroup` / areas | `Buffer` / `BufferGroup` over an `Area` (named shared memory on Windows) |
+| `BTimeSource` | `TimeSource`: performance ↔ real time, published by the master clock |
+| graphics accelerants | `Accelerant`: one per GPU |
+
+The accelerant keeps BeOS's driver model and maps it onto Windows:
+
+| BeOS accelerant API | Windows implementation |
+|---------------------|------------------------|
+| `get_accelerant_hook(feature)` | DXVA decoder profiles, D3D11 video processor, DXGI overlay planes, Media Foundation hardware encoders |
+| `acquire_engine` / `release_engine` | the multithread-protected D3D11 immediate context |
+| sync tokens | D3D11 event queries |
+
+Every GPU decode hook becomes a roster flavor (hardware output stays in D3D11
+textures, or is read back to NV12 / P010). `mkff-hwenc` registers NVENC / Quick
+Sync / AMF H.264 encoders and `mkff-audio` registers the software audio codecs, so
+one call picks the best codec and falls back cleanly (`MKFF_ACCEL=auto|hw|sw`):
+
+```rust
+use mkff_mediakit::{AccelPolicy, CodecFamily, MediaFormat};
+
+let roster = mkff_audio::addon::roster(); // GPU accelerants + MKFF audio codecs
+let h264 = MediaFormat::encoded(CodecFamily::H264, avcc, 1920, 1080);
+let (flavor, mut dec) = roster.video_decoder(&h264, AccelPolicy::Auto)?;
+println!("{} via {}", flavor.info.name, flavor.info.accel);
+```
+
+`cargo run -p mkff-mediakit --example accel_info` lists each GPU's hooks. HEVC,
+VP9 and AV1 decode hooks appear when Windows has the matching Media Foundation
+decoders (the HEVC / VP9 / AV1 Video Extensions from the Microsoft Store).
+
 ## Software codecs (`mkff-codecs`)
 
 Pure-Rust, safe-code demux and decode for every container and codec MKFF
-handles, on every platform, with no native codec library. It adapts the
-[FilmCraft](https://github.com/storytold/filmcraft/tree/main/crates) codec
-crates (MIT OR Apache-2.0, written from the public specifications), pinned
-to one revision.
+handles, on every platform, with no native codec library. Audio is MKFF's own
+[`mkff-audio`](#mkff-audio-mkff-audio): WAV / AIFF, MP3, ADTS, FLAC, Ogg and MP4 / MOV
+audio never touch FilmCraft (`MediaFile::audio_is_native`). Video, and the audio of
+Matroska / WebM, AVI, MXF and MPEG-TS / PS, still come from the
+[FilmCraft](https://github.com/storytold/filmcraft/tree/main/crates) codec crates
+(MIT OR Apache-2.0, written from the public specifications), pinned to one revision.
 
 | Kind | Supported |
 |------|-----------|
@@ -195,10 +298,8 @@ Main10, VP8, VP9 and AV1 are bit-exact; ProRes, DNxHR and MPEG-2 within ±1
 LSB (IDCT rounding the specs allow).
 
 Surround AC-3 / E-AC-3 in MP4 / MOV keeps every channel: the sample entry's
-`ChannelCount` is 2 by specification (ETSI TS 102 366 Annex F), which
-FilmCraft's MP4 source took literally, keeping only front left / right of a 5.1
-track; `MediaFile` reads such tracks with the channel count the decoder reports
-(`testdata/codecs/tone51_*.mp4`).
+`ChannelCount` is 2 by specification (ETSI TS 102 366 Annex F); MKFF's MP4 demuxer
+takes the real layout from `dac3` / `dec3` (`testdata/codecs/tone51_*.mp4`).
 
 **Rust:**
 
@@ -229,8 +330,9 @@ it sees and can dump NV12 / native planes.
 optional B-frames) and ProRes (Proxy … 4444 XQ, alpha) video from RGBA8 (or planar 4:2:0 for
 H.264), AAC-LC audio (1–8 channels, CBR), written to MP4 / MOV by `MediaWriter`, either
 progressive or fragmented (a fragment per video keyframe, so a recording cut short stays
-playable). Encoders from the same pinned FilmCraft revision (`filmcraft-h264enc`,
-`filmcraft-prores`, `filmcraft-aac`, `filmcraft-isobmff`).
+playable). Video encoders and the MP4 writer come from the pinned FilmCraft revision
+(`filmcraft-h264enc`, `filmcraft-prores`, `filmcraft-isobmff`); the AAC encoder is MKFF's own
+`mkff-aac`. For MP3 / FLAC / ALAC / WAV output, use `mkff_audio::AudioWriter`.
 
 ```rust
 use mkff_codecs::encode::{AudioEncoder, Container, MediaWriter, VideoEncoder, VideoEncoderConfig};
@@ -412,5 +514,7 @@ subset.
 
 MIT — see [LICENSE](LICENSE). Third-party libhevc is Apache-2.0; the
 FilmCraft codec crates used by `mkff-codecs` are MIT OR Apache-2.0 (used
-under MIT), and their audio bootstrap decoders come from Symphonia
-(MPL-2.0, unmodified); see [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES).
+under MIT), and their audio bootstrap decoders (still compiled in for the
+containers MKFF does not demux itself yet) come from Symphonia (MPL-2.0,
+unmodified). `mkff-opus` ports the RFC 6716 reference decoder (BSD-3-Clause).
+See [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES).

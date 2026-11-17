@@ -387,13 +387,11 @@ fn h264_packets(ps: Vec<filmcraft_h264enc::Packet>, duration: u32) -> Vec<Packet
 // ---------------------------------------------------------------------------------------------
 // Audio
 
-/// An AAC-LC audio encoder (1024 samples per channel per packet).
+/// An AAC-LC audio encoder (1024 samples per channel per packet): MKFF's own (`mkff-aac`).
 pub struct AudioEncoder {
-    enc: filmcraft_aac::Encoder,
+    enc: mkff_aac::AacEncoder,
     sample_rate: u32,
     channels: usize,
-    /// Samples handed out so far (packet timestamps).
-    next_pts: i64,
 }
 
 impl AudioEncoder {
@@ -404,9 +402,9 @@ impl AudioEncoder {
         }
         // An AAC frame carries at most 6144 bits per channel (ISO/IEC 14496-3 §4.5.3.2).
         let max = (6 * sample_rate as u64 * channels as u64).min(u32::MAX as u64) as u32;
-        let cfg = filmcraft_aac::EncoderConfig::cbr(sample_rate, channels, bitrate_bps.clamp(16_000, max));
-        let enc = filmcraft_aac::Encoder::new(cfg).map_err(|e| Error::Encode(format!("AAC: {e}")))?;
-        Ok(AudioEncoder { enc, sample_rate, channels, next_pts: 0 })
+        let cfg = mkff_aac::AacEncoderConfig::new(sample_rate, channels, bitrate_bps.clamp(16_000, max));
+        let enc = mkff_aac::AacEncoder::new(cfg).map_err(|e| Error::Encode(format!("AAC: {e}")))?;
+        Ok(AudioEncoder { enc, sample_rate, channels })
     }
 
     pub fn sample_rate(&self) -> u32 {
@@ -424,11 +422,11 @@ impl AudioEncoder {
 
     /// Encoder delay in samples (the track's edit skips it).
     pub fn priming(&self) -> u32 {
-        self.enc.priming_samples()
+        mkff_audio::Encoder::priming(&self.enc)
     }
 
     pub fn sample_entry(&self) -> SampleEntry {
-        SampleEntry::aac(self.enc.audio_specific_config(), self.channels as u32, self.sample_rate)
+        SampleEntry::aac(mkff_audio::Encoder::config(&self.enc), self.channels as u32, self.sample_rate)
     }
 
     /// Encode planar f32 (one slice per channel, any length); returns the whole packets ready.
@@ -436,29 +434,19 @@ impl AudioEncoder {
         if planar.len() != self.channels {
             return Err(Error::InvalidArgument(format!("{} channels for a {}-channel encoder", planar.len(), self.channels)));
         }
-        let refs: Vec<&[f32]> = if self.channels == 6 {
-            // WAV L R C LFE Ls Rs → AAC channel configuration 6: C L R Ls Rs LFE
-            [2usize, 0, 1, 4, 5, 3].iter().map(|&c| planar[c]).collect()
-        } else {
-            planar.to_vec()
-        };
-        let aus = self.enc.encode(&refs);
-        Ok(self.packets(aus))
+        let ps = mkff_audio::Encoder::encode(&mut self.enc, planar).map_err(|e| Error::Encode(format!("AAC: {e}")))?;
+        Ok(Self::packets(ps))
     }
 
     /// Pad and drain the last frames (call once, at the end).
     pub fn flush(&mut self) -> Result<Vec<Packet>> {
-        let aus = self.enc.flush();
-        Ok(self.packets(aus))
+        let ps = mkff_audio::Encoder::flush(&mut self.enc).map_err(|e| Error::Encode(format!("AAC: {e}")))?;
+        Ok(Self::packets(ps))
     }
 
-    fn packets(&mut self, aus: Vec<Vec<u8>>) -> Vec<Packet> {
-        aus.into_iter()
-            .map(|data| {
-                let pts = self.next_pts;
-                self.next_pts += filmcraft_aac::FRAME_LEN as i64;
-                Packet { data, pts, dts: pts, duration: filmcraft_aac::FRAME_LEN as u32, keyframe: true }
-            })
+    fn packets(ps: Vec<mkff_audio::Packet>) -> Vec<Packet> {
+        ps.into_iter()
+            .map(|p| Packet { data: p.data, pts: p.pts, dts: p.pts, duration: p.duration, keyframe: true })
             .collect()
     }
 }

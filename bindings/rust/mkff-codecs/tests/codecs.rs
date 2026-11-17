@@ -261,6 +261,9 @@ fn audio_only_files() {
     ] {
         let m = MediaFile::open(fixture(name)).unwrap_or_else(|e| panic!("{name}: {e}"));
         assert!(m.info().video.is_none(), "{name}");
+        // MKFF's own audio stack, except Matroska which FilmCraft still demuxes
+        assert_eq!(m.audio_is_native(0), !name.ends_with(".mka"), "{name}");
+        assert_eq!(m.source().is_none(), !name.ends_with(".mka"), "{name}: FilmCraft opened an audio-only file");
         assert_eq!(m.info().audio[0].sample_rate, rate, "{name}");
         let buf = m
             .audio(0, rate as usize / 10, 0)
@@ -294,6 +297,7 @@ fn surround_ac3_in_mp4_keeps_every_channel() {
     for name in ["codecs/tone51_ac3.mp4", "codecs/tone51_eac3.mp4"] {
         let m = MediaFile::open(fixture(name)).unwrap_or_else(|e| panic!("{name}: {e}"));
         assert_eq!(m.info().audio[0].channels, 6, "{name}");
+        assert!(m.audio_is_native(0), "{name}");
         for (start, rate) in [(0i64, 48_000u32), (2400, 48_000), (0, 44_100)] {
             let buf = m.audio(start, 6000, rate).unwrap();
             assert_eq!(buf.channel_count(), 6, "{name}");

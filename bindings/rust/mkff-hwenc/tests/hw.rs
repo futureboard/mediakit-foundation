@@ -76,3 +76,27 @@ fn every_hardware_encoder_roundtrips() {
         let _ = std::fs::remove_file(&path);
     }
 }
+
+#[test]
+fn encoder_through_the_media_roster() {
+    use mkff_mediakit::{AccelPolicy, CodecFamily, MediaFormat, MediaRoster, PixelFormat, VideoFrame};
+    let roster = MediaRoster::new();
+    mkff_hwenc::addon::register(&roster);
+    let input = MediaFormat::raw_video(320, 240, PixelFormat::Rgba8);
+    let output = MediaFormat::encoded(CodecFamily::H264, Vec::new(), 0, 0);
+    let Ok((flavor, mut enc)) = roster.video_encoder(&input, &output, AccelPolicy::HardwareOnly) else {
+        eprintln!("skipping: no hardware H.264 encoder");
+        return;
+    };
+    assert!(flavor.info.accel.is_hardware());
+    let mut chunks = Vec::new();
+    for i in 0..30u8 {
+        let rgba: Vec<u8> = (0..320 * 240 * 4).map(|p| (p as u8).wrapping_add(i * 8)).collect();
+        let f = VideoFrame { width: 320, height: 240, format: PixelFormat::Rgba8, planes: vec![rgba], strides: vec![1280], ..Default::default() };
+        chunks.extend(enc.encode(&f).unwrap());
+    }
+    chunks.extend(enc.flush().unwrap());
+    assert!(chunks.len() >= 28, "{} packets", chunks.len());
+    assert!(chunks[0].keyframe);
+    assert!(matches!(enc.output_format(), MediaFormat::EncodedVideo(e) if !e.config.is_empty()));
+}
