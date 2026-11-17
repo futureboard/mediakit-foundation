@@ -1,8 +1,8 @@
-use filmcraft_codecs::audio::{self as fa, PacketDecoder};
+use mkff_audio::CodecId;
 
 use crate::{Error, Result};
 
-/// Audio codecs with a software decoder.
+/// Audio codecs with a software decoder (MKFF's own, from `mkff-audio`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum AudioCodec {
     /// AAC-LC and the AAC-LC core of HE-AAC v1 / v2 (upsampled to the SBR output rate).
@@ -54,6 +54,19 @@ impl AudioCodec {
             _ => return None,
         })
     }
+
+    /// The `mkff-audio` codec id.
+    pub fn id(self) -> CodecId {
+        match self {
+            AudioCodec::Aac => CodecId::Aac,
+            AudioCodec::Opus => CodecId::Opus,
+            AudioCodec::Ac3 => CodecId::Ac3,
+            AudioCodec::MpegAudio => CodecId::MpegAudio,
+            AudioCodec::Flac => CodecId::Flac,
+            AudioCodec::Alac => CodecId::Alac,
+            AudioCodec::Vorbis => CodecId::Vorbis,
+        }
+    }
 }
 
 /// Decoded audio: planar f32, one `Vec` per channel, all the same length. Surround layouts are in
@@ -87,11 +100,17 @@ impl AudioBuffer {
     }
 }
 
+impl From<mkff_audio::AudioBuffer> for AudioBuffer {
+    fn from(b: mkff_audio::AudioBuffer) -> Self {
+        AudioBuffer { sample_rate: b.sample_rate, channels: b.channels }
+    }
+}
+
 /// A stateful software audio decoder for one elementary stream.
 ///
 /// | Codec | Packet | Configuration |
 /// |-------|--------|---------------|
-/// | AAC | Raw access unit, or an ADTS frame when no configuration is given | `AudioSpecificConfig` (`esds` / Matroska `CodecPrivate`) |
+/// | AAC | Raw access unit, or an ADTS / LOAS frame when no configuration is given | `AudioSpecificConfig` (`esds` / Matroska `CodecPrivate`) |
 /// | Opus | One Opus packet | `OpusHead` (Ogg / Matroska) or `dOps` payload; empty: stereo, no pre-skip |
 /// | AC-3 / E-AC-3 | One or more syncframes | — |
 /// | MPEG audio | One or more frames | — |
@@ -99,85 +118,18 @@ impl AudioBuffer {
 /// | ALAC | One packet | ALAC magic cookie |
 /// | Vorbis | One packet | Identification + setup headers, or Matroska Xiph-laced `CodecPrivate` |
 pub struct AudioDecoder {
-    inner: PacketDecoder,
+    inner: Box<dyn mkff_audio::Decoder>,
     codec: AudioCodec,
-    /// AAC configured from in-band ADTS headers.
-    adts: bool,
+    /// The container's rate, until the decoder knows its own.
     sample_rate: u32,
 }
 
 impl AudioDecoder {
     /// `sample_rate`: the stream's rate from the container (0 when unknown: it is then read from
-    /// the configuration or the first frame header where the codec has one).
+    /// the configuration or the first frame header).
     pub fn new(codec: AudioCodec, sample_rate: u32, config: &[u8]) -> Result<Self> {
-        use symphonia::core::codecs::{CODEC_TYPE_ALAC, CODEC_TYPE_FLAC, CODEC_TYPE_VORBIS};
-        let mut rate = sample_rate;
-        let mut adts = false;
-        let inner = match codec {
-            AudioCodec::Aac if config.is_empty() => {
-                adts = true;
-                PacketDecoder::lazy_aac()
-            }
-            AudioCodec::Aac => {
-                let out = fa::aac_output_rate(config, std::iter::empty()).ok_or_else(|| {
-                    Error::Unsupported("AAC: AudioSpecificConfig not supported".into())
-                })?;
-                // HE-AAC with implicit SBR: the container's rate is the output rate
-                rate = if sample_rate == out * 2 {
-                    sample_rate
-                } else {
-                    out
-                };
-                PacketDecoder::aac(config, rate)?
-            }
-            AudioCodec::Opus => {
-                let head = if config.is_empty() {
-                    filmcraft_opus::OpusHead::simple(2)
-                } else if config.starts_with(b"OpusHead") {
-                    filmcraft_opus::OpusHead::parse(config)
-                } else {
-                    filmcraft_opus::OpusHead::from_dops(config)
-                }
-                .map_err(|e| Error::Unsupported(format!("Opus: {e}")))?;
-                rate = fa::OPUS_RATE;
-                PacketDecoder::opus(head)?
-            }
-            AudioCodec::Ac3 => PacketDecoder::ac3()?,
-            AudioCodec::MpegAudio => PacketDecoder::lazy_mpeg_audio(sample_rate),
-            AudioCodec::Flac => {
-                let info = flac_streaminfo(config);
-                if let Some(r) = info.and_then(|s| s.get(10..13)).map(|b| {
-                    (u32::from(b[0]) << 12) | (u32::from(b[1]) << 4) | (u32::from(b[2]) >> 4)
-                }) {
-                    rate = r;
-                }
-                PacketDecoder::new(CODEC_TYPE_FLAC, rate, info.map(<[u8]>::to_vec))?
-            }
-            AudioCodec::Alac => PacketDecoder::new(
-                CODEC_TYPE_ALAC,
-                sample_rate,
-                (!config.is_empty()).then(|| config.to_vec()),
-            )?,
-            AudioCodec::Vorbis => {
-                let extra = match xiph_unlace(config) {
-                    Some(h) if h.len() == 3 => [h[0], h[2]].concat(),
-                    _ => config.to_vec(),
-                };
-                if let Some(r) = extra
-                    .get(12..16)
-                    .filter(|_| extra.get(1..7) == Some(b"vorbis"))
-                {
-                    rate = u32::from_le_bytes([r[0], r[1], r[2], r[3]]);
-                }
-                PacketDecoder::new(CODEC_TYPE_VORBIS, rate, Some(extra))?
-            }
-        };
-        Ok(Self {
-            inner,
-            codec,
-            adts,
-            sample_rate: rate,
-        })
+        let inner = mkff_audio::decoder(codec.id(), config)?;
+        Ok(Self { inner, codec, sample_rate })
     }
 
     pub fn codec(&self) -> AudioCodec {
@@ -187,37 +139,20 @@ impl AudioDecoder {
     /// The output sample rate (0 until known: for header-configured codecs, after the first
     /// packet).
     pub fn sample_rate(&self) -> u32 {
-        self.sample_rate
+        match self.inner.sample_rate() {
+            0 => self.sample_rate,
+            r => r,
+        }
     }
 
-    /// Decode one packet. `ts` is the packet's timestamp (only some codecs use it).
-    pub fn decode(&mut self, packet: &[u8], ts: u64) -> Result<AudioBuffer> {
-        let channels = if self.adts {
-            let (asc, raw) = fa::adts_split(packet).ok_or_else(|| {
-                Error::Decode(
-                    "AAC: not an ADTS frame (pass an AudioSpecificConfig for raw AAC)".into(),
-                )
-            })?;
-            self.inner.ensure_aac(&asc)?;
-            if let Some(r) = asc_rate(&asc) {
-                self.sample_rate = r;
-            }
-            self.inner.decode(raw, ts)?
-        } else {
-            if self.sample_rate == 0 {
-                self.sample_rate = match self.codec {
-                    AudioCodec::MpegAudio => mpeg_audio_rate(packet),
-                    AudioCodec::Ac3 => ac3_rate(packet),
-                    _ => None,
-                }
-                .unwrap_or(0);
-            }
-            self.inner.decode(packet, ts)?
-        };
-        Ok(AudioBuffer {
-            sample_rate: self.sample_rate,
-            channels,
-        })
+    /// Decode one packet. `ts` is the packet's timestamp (unused: MKFF's decoders are driven
+    /// by the packets alone).
+    pub fn decode(&mut self, packet: &[u8], _ts: u64) -> Result<AudioBuffer> {
+        let mut b: AudioBuffer = self.inner.decode(packet)?.into();
+        if b.sample_rate == 0 {
+            b.sample_rate = self.sample_rate();
+        }
+        Ok(b)
     }
 
     /// Forget decoding state (after a seek).
@@ -230,105 +165,21 @@ impl std::fmt::Debug for AudioDecoder {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AudioDecoder")
             .field("codec", &self.codec)
-            .field("sample_rate", &self.sample_rate)
+            .field("sample_rate", &self.sample_rate())
             .finish()
     }
 }
 
-/// The 34-byte FLAC `STREAMINFO` body from a `fLaC` stream header, a metadata block (4-byte
-/// header) or the bare body.
-fn flac_streaminfo(c: &[u8]) -> Option<&[u8]> {
-    let body = if c.starts_with(b"fLaC") {
-        c.get(8..42)
-    } else if c.len() >= 38 && c[0] & 0x7F == 0 && c[1..4] == [0, 0, 34] {
-        c.get(4..38)
-    } else {
-        c.get(..34)
-    };
-    body.filter(|b| b.len() == 34)
-}
-
-/// Split Xiph-laced packets (Matroska `CodecPrivate` for Vorbis / Theora).
-fn xiph_unlace(c: &[u8]) -> Option<Vec<&[u8]>> {
-    let count = usize::from(*c.first()?) + 1;
-    let mut pos = 1;
-    let mut sizes = Vec::with_capacity(count);
-    for _ in 0..count - 1 {
-        let mut n = 0usize;
-        loop {
-            let b = *c.get(pos)?;
-            pos += 1;
-            n += usize::from(b);
-            if b != 255 {
-                break;
-            }
+impl From<mkff_audio::Error> for Error {
+    fn from(e: mkff_audio::Error) -> Self {
+        match e {
+            mkff_audio::Error::Unsupported(s) => Error::Unsupported(s),
+            mkff_audio::Error::InvalidData(s) => Error::Decode(s),
+            mkff_audio::Error::EndOfData => Error::Decode("truncated data".into()),
+            mkff_audio::Error::InvalidArgument(s) => Error::InvalidArgument(s),
+            mkff_audio::Error::Io(s) => Error::Io(s),
         }
-        sizes.push(n);
     }
-    let mut out = Vec::with_capacity(count);
-    for n in sizes {
-        out.push(c.get(pos..pos + n)?);
-        pos += n;
-    }
-    out.push(c.get(pos..)?);
-    Some(out)
-}
-
-const AAC_RATES: [u32; 13] = [
-    96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350,
-];
-
-/// The core sampling rate of an AudioSpecificConfig (explicit-rate escape included).
-fn asc_rate(asc: &[u8]) -> Option<u32> {
-    let idx = ((asc.first()? & 7) << 1) | (asc.get(1)? >> 7);
-    if idx == 15 {
-        let b = asc.get(1..5)?;
-        return Some(
-            ((u32::from(b[0]) & 0x7F) << 17)
-                | (u32::from(b[1]) << 9)
-                | (u32::from(b[2]) << 1)
-                | (u32::from(b[3]) >> 7),
-        );
-    }
-    AAC_RATES.get(usize::from(idx)).copied()
-}
-
-/// Sampling rate named by an MPEG-1/2/2.5 audio frame header.
-fn mpeg_audio_rate(f: &[u8]) -> Option<u32> {
-    let (b1, b2) = (*f.get(1)?, *f.get(2)?);
-    if f[0] != 0xFF || b1 & 0xE0 != 0xE0 {
-        return None;
-    }
-    let base = [44100, 48000, 32000]
-        .get(usize::from((b2 >> 2) & 3))
-        .copied()?;
-    match (b1 >> 3) & 3 {
-        3 => Some(base),
-        2 => Some(base / 2),
-        0 => Some(base / 4),
-        _ => None,
-    }
-}
-
-/// Sampling rate named by an AC-3 / E-AC-3 syncframe header.
-fn ac3_rate(f: &[u8]) -> Option<u32> {
-    if f.get(..2)? != [0x0B, 0x77] {
-        return None;
-    }
-    let bsid = f.get(5)? >> 3;
-    let fscod = f.get(4)? >> 6;
-    if bsid > 10 {
-        // E-AC-3: fscod 3 selects the reduced rates through fscod2
-        return if fscod == 3 {
-            [24000, 22050, 16000]
-                .get(usize::from((f[4] >> 4) & 3))
-                .copied()
-        } else {
-            [48000, 44100, 32000].get(usize::from(fscod)).copied()
-        };
-    }
-    let base: u32 = [48000, 44100, 32000].get(usize::from(fscod)).copied()?;
-    Some(base >> bsid.saturating_sub(8))
 }
 
 #[cfg(test)]
@@ -336,33 +187,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn header_rates() {
-        assert_eq!(asc_rate(&[0x12, 0x10]), Some(44100));
-        assert_eq!(asc_rate(&[0x11, 0x90]), Some(48000));
-        assert_eq!(mpeg_audio_rate(&[0xFF, 0xFB, 0x90, 0x00]), Some(44100));
-        assert_eq!(mpeg_audio_rate(&[0xFF, 0xF3, 0x84, 0x00]), Some(24000));
-        assert_eq!(ac3_rate(&[0x0B, 0x77, 0, 0, 0x00, 0x40]), Some(48000));
-        assert_eq!(ac3_rate(&[0x0B, 0x77, 0, 0, 0x40, 0x40]), Some(44100));
-    }
-
-    #[test]
-    fn xiph_lacing() {
-        let c = [2u8, 3, 1, b'a', b'b', b'c', b'd', b'x', b'y'];
-        assert_eq!(
-            xiph_unlace(&c).unwrap(),
-            vec![&b"abc"[..], &b"d"[..], &b"xy"[..]]
-        );
-    }
-
-    #[test]
-    fn flac_streaminfo_forms() {
-        let body: Vec<u8> = (0..34).collect();
-        let mut block = vec![0x80, 0, 0, 34];
-        block.extend_from_slice(&body);
-        let mut stream = b"fLaC".to_vec();
-        stream.extend_from_slice(&block);
-        assert_eq!(flac_streaminfo(&body), Some(&body[..]));
-        assert_eq!(flac_streaminfo(&block), Some(&body[..]));
-        assert_eq!(flac_streaminfo(&stream), Some(&body[..]));
+    fn every_codec_constructs() {
+        for c in AudioCodec::ALL {
+            // header-configured codecs take an empty configuration
+            let empty_ok = !matches!(c, AudioCodec::Alac | AudioCodec::Flac);
+            if empty_ok {
+                AudioDecoder::new(c, 48_000, &[]).unwrap_or_else(|e| panic!("{c:?}: {e}"));
+            }
+        }
     }
 }

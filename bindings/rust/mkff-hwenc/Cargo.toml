@@ -8,6 +8,8 @@ description = "Hardware H.264 encode for MKFF: NVIDIA NVENC, Intel Quick Sync (Q
 
 [dependencies]
 mkff-codecs = { path = "../mkff-codecs" }
+# Registers the encoders as Media Kit add-on flavors (`addon` module).
+mkff-mediakit = { path = "../mkff-mediakit" }
 rayon = "1.10"
 log = "0.4"
 

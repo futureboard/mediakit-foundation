@@ -1,9 +1,16 @@
 //! Pure-Rust software demux and decode for MKFF: every codec, no FFmpeg.
 //!
-//! `libmkff` decodes H.264 and HEVC on the platform's video hardware. This crate covers everything
-//! else in software, in safe Rust, on any platform, by adapting the FilmCraft codec crates
-//! (<https://github.com/storytold/filmcraft>, MIT OR Apache-2.0), which are written from the
-//! public specifications:
+//! `libmkff` decodes H.264 and HEVC on the platform's video hardware (and `mkff-mediakit`'s
+//! accelerants do the same through D3D11 / DXVA on Windows). This crate covers everything in
+//! software, in safe Rust, on any platform:
+//!
+//! - **Audio** is MKFF's own: the `mkff-audio` stack (`mkff-mp3`, `mkff-aac`, `mkff-flac`,
+//!   `mkff-alac`, `mkff-ac3`, `mkff-opus`, `mkff-vorbis`, `mkff-audio-format`), written from the
+//!   specifications. WAV / AIFF, MP3, ADTS, FLAC, Ogg and MP4 / MOV audio never go through
+//!   FilmCraft.
+//! - **Video**, and the audio of Matroska / WebM, AVI, MXF and MPEG-TS / PS (which MKFF does not
+//!   demux itself yet), still come from the FilmCraft codec crates
+//!   (<https://github.com/storytold/filmcraft>, MIT OR Apache-2.0), being replaced step by step.
 //!
 //! | Kind | Formats |
 //! |------|---------|
@@ -19,7 +26,8 @@
 //! - [`VideoDecoder`] / [`AudioDecoder`]: stateful packet decoders for elementary streams, e.g.
 //!   the Annex-B access units from `mkff::Mp4Demux`, or [`ivf::IvfReader`] frames.
 //!
-//! [`encode`]: H.264 / ProRes video and AAC-LC audio encoders and an MP4 / MOV writer
+//! [`encode`]: H.264 / ProRes video (FilmCraft) and AAC-LC audio (`mkff-aac`) encoders and an
+//! MP4 / MOV writer
 //! (progressive, or fragmented for crash-safe live recording).
 //!
 //! Frames come out as planar Y'CbCr (8 or 16-bit, 4:2:0 / 4:2:2 / 4:4:4, optional alpha) or RGBA;
@@ -32,7 +40,6 @@ mod error;
 mod frame;
 pub mod ivf;
 mod media;
-mod mp4_ac3;
 mod video;
 
 pub use audio::{AudioBuffer, AudioCodec, AudioDecoder};
@@ -50,8 +57,10 @@ pub mod filmcraft {
 
 /// File extensions [`MediaFile::open`] recognises (video and audio; stills are opened too).
 pub fn supported_extensions() -> impl Iterator<Item = &'static str> {
+    let audio = mkff_audio::supported_extensions();
     filmcraft_media::VIDEO_EXTENSIONS
         .iter()
-        .chain(filmcraft_media::AUDIO_EXTENSIONS)
+        .chain(audio.iter())
+        .chain(filmcraft_media::AUDIO_EXTENSIONS.iter().filter(move |e| !audio.contains(e)))
         .copied()
 }

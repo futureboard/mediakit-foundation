@@ -28,6 +28,7 @@
 //! Other platforms: [`h264_encoders`] is empty and [`HwVideoEncoder::new`] returns
 //! `Error::Unsupported`.
 
+pub mod addon;
 mod bitstream;
 mod nv12;
 #[cfg(windows)]

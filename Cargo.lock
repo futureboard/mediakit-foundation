@@ -2417,21 +2417,69 @@ dependencies = [
 ]
 
 [[package]]
+name = "mkff-aac"
+version = "0.1.0-dev"
+dependencies = [
+ "mkff-audio-core",
+]
+
+[[package]]
+name = "mkff-ac3"
+version = "0.1.0-dev"
+dependencies = [
+ "mkff-audio-core",
+]
+
+[[package]]
+name = "mkff-alac"
+version = "0.1.0-dev"
+dependencies = [
+ "mkff-audio-core",
+]
+
+[[package]]
+name = "mkff-audio"
+version = "0.1.0-dev"
+dependencies = [
+ "log",
+ "mkff-aac",
+ "mkff-ac3",
+ "mkff-alac",
+ "mkff-audio-core",
+ "mkff-audio-format",
+ "mkff-flac",
+ "mkff-mediakit",
+ "mkff-mp3",
+ "mkff-opus",
+ "mkff-vorbis",
+]
+
+[[package]]
+name = "mkff-audio-core"
+version = "0.1.0-dev"
+
+[[package]]
+name = "mkff-audio-format"
+version = "0.1.0-dev"
+dependencies = [
+ "mkff-audio-core",
+]
+
+[[package]]
 name = "mkff-codecs"
 version = "0.1.0-dev"
 dependencies = [
- "filmcraft-aac",
  "filmcraft-codecs",
  "filmcraft-color",
  "filmcraft-frame",
  "filmcraft-h264enc",
  "filmcraft-isobmff",
  "filmcraft-media",
- "filmcraft-opus",
  "filmcraft-prores",
  "filmcraft-time",
+ "mkff-aac",
+ "mkff-audio",
  "rayon",
- "symphonia",
 ]
 
 [[package]]
@@ -2442,13 +2490,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "mkff-flac"
+version = "0.1.0-dev"
+dependencies = [
+ "mkff-audio-core",
+]
+
+[[package]]
 name = "mkff-hwenc"
 version = "0.1.0-dev"
 dependencies = [
  "log",
  "mkff-codecs",
+ "mkff-mediakit",
  "rayon",
  "windows 0.62.2",
+]
+
+[[package]]
+name = "mkff-mediakit"
+version = "0.1.0-dev"
+dependencies = [
+ "log",
+ "windows 0.62.2",
+]
+
+[[package]]
+name = "mkff-mp3"
+version = "0.1.0-dev"
+dependencies = [
+ "mkff-audio-core",
+]
+
+[[package]]
+name = "mkff-opus"
+version = "0.1.0-dev"
+dependencies = [
+ "mkff-audio-core",
 ]
 
 [[package]]
@@ -2481,6 +2559,13 @@ version = "0.1.0-dev"
 dependencies = [
  "ash",
  "mkff",
+]
+
+[[package]]
+name = "mkff-vorbis"
+version = "0.1.0-dev"
+dependencies = [
+ "mkff-audio-core",
 ]
 
 [[package]]
